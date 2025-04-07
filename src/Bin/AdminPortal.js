@@ -56,15 +56,6 @@ const AdminPortal = () => {
     fetchAllData();
   }, [navigate, refreshKey]);
 
-  useEffect(() => {
-    console.log("All Police:", allPolice.map(p => ({ id: p.hrms, name: p.name })));
-    console.log("All Stations with incharge IDs:", allStations.map(s => ({
-      stationId: s.stationSid,
-      inchargeId: s.StationInchargeId,
-      inchargeIdType: typeof s.StationInchargeId
-    })));
-  }, [allPolice, allStations]);
-
   const refreshData = () => {
     setRefreshKey(oldKey => oldKey + 1); // Increment refreshKey to trigger a refresh
   };
@@ -229,23 +220,24 @@ const AdminPortal = () => {
     e.preventDefault();
     setIsProcessing(true);
     setError('');
-
+  
     try {
       // Find the selected officer to get their name
       const selectedOfficer = allPolice.find(officer =>
         officer.hrms.toString() === formData.stationInchargeId.toString()
       );
-
+  
       if (!selectedOfficer) {
         throw new Error('Selected officer not found');
       }
-
-      // Call the API to update just the StationInchargeId
-      await stationAPI.updateStationIncharge(
-        selectedItem.stationSid,
-        parseInt(formData.stationInchargeId)
-      );
-
+  
+      const updatedStation = {
+        ...selectedItem,
+        StationInchargeId: parseInt(formData.stationInchargeId), // Convert to integer
+        StationIncharge: selectedOfficer.name // Update incharge name as well
+      };
+  
+      await stationAPI.updateStation(updatedStation);
       alert('Station incharge updated successfully');
       setIsModalOpen(false);
       refreshData();
@@ -256,7 +248,7 @@ const AdminPortal = () => {
       setIsProcessing(false);
     }
   };
-
+  
 
   // Function to handle input change in modal forms
   const handleInputChange = (e) => {
@@ -791,23 +783,7 @@ const AdminPortal = () => {
                             <tr key={station.stationSid} className="hover:bg-gray-50">
                               <td className="py-3 px-4">{station.stationSid}</td>
                               <td className="py-3 px-4">{station.stationName}</td>
-                              <td className="py-3 px-4">
-                                {station.StationInchargeId ?
-                                  (() => {
-                                    // Find all officers from this station
-                                    const stationOfficers = allPolice.filter(p => p.stationId === station.stationSid.toString());
-
-                                    // Find the specific officer by HRMS ID
-                                    const officer = allPolice.find(p =>
-                                      parseInt(p.hrms) === parseInt(station.StationInchargeId)
-                                    );
-
-                                    // If found, show name, otherwise show ID with unknown message
-                                    return officer ? officer.name :
-                                      `Unknown Officer (ID: ${station.StationInchargeId})`;
-                                  })() :
-                                  'Not assigned'}
-                              </td>
+                              <td className="py-3 px-4">{station.StationIncharge}</td>
                               <td className="py-3 px-4">{station.StationInchargeId || 'Not assigned'}</td>
                               <td className="py-3 px-4">{station.address}</td>
                               <td className="py-3 px-4">
@@ -952,7 +928,6 @@ const AdminPortal = () => {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
-                          {console.log(allUsers)}
                           {allUsers.map((user) => (
                             <tr key={user.aid} className="hover:bg-gray-50">
                               <td className="py-3 px-4">{user.aid}</td>
@@ -1018,8 +993,8 @@ const AdminPortal = () => {
                               <td className="py-3 px-4">{fir.incidentLocation}</td>
                               <td className="py-3 px-4">
                                 <span className={`px-2 py-1 rounded-full text-xs ${fir.close ? 'bg-green-100 text-green-800' :
-                                  fir.officerId ? 'bg-yellow-100 text-yellow-800' :
-                                    'bg-blue-100 text-blue-800'
+                                    fir.officerId ? 'bg-yellow-100 text-yellow-800' :
+                                      'bg-blue-100 text-blue-800'
                                   }`}>
                                   {fir.close ? 'Resolved' : fir.officerId ? 'In Progress' : 'Submitted'}
                                 </span>
@@ -1203,135 +1178,6 @@ const AdminPortal = () => {
                               {selectedItem?.approval ? 'Approved' : 'Pending'}
                             </span>
                           </p>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                  {modalType === 'viewStation' && (
-                    <>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-gray-500 text-sm">Station ID</label>
-                          <p className="font-medium">{selectedItem?.stationSid}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Station Name</label>
-                          <p className="font-medium">{selectedItem?.stationName}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Incharge</label>
-                          <p className="font-medium">
-                            {selectedItem?.StationInchargeId ?
-                              (() => {
-                                const officer = allPolice.find(p =>
-                                  Number(p.hrms) === Number(selectedItem.StationInchargeId)
-                                );
-                                return officer ? officer.name : `Unknown (ID: ${selectedItem.StationInchargeId})`;
-                              })() : 'Not assigned'}
-                          </p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Address</label>
-                          <p className="font-medium">{selectedItem?.address}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Pin Code</label>
-                          <p className="font-medium">{selectedItem?.pinCode}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Phone</label>
-                          <p className="font-medium">{selectedItem?.phoneNo}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Email</label>
-                          <p className="font-medium">{selectedItem?.sEmail}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Status</label>
-                          <p className="font-medium">
-                            <span className={`px-2 py-1 rounded-full text-xs ${selectedItem?.approval ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                              {selectedItem?.approval ? 'Approved' : 'Pending'}
-                            </span>
-                          </p>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  {modalType === 'viewFIR' && (
-                    <>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-gray-500 text-sm">FIR ID</label>
-                          <p className="font-medium">{selectedItem?.firId}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Complaint Date</label>
-                          <p className="font-medium">{new Date(selectedItem?.complainDate).toLocaleDateString()}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Incident Location</label>
-                          <p className="font-medium">{selectedItem?.incidentLocation}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Incident Date</label>
-                          <p className="font-medium">{new Date(selectedItem?.incidentDate).toLocaleDateString()}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Status</label>
-                          <p className="font-medium">
-                            <span className={`px-2 py-1 rounded-full text-xs ${selectedItem?.close ? 'bg-green-100 text-green-800' :
-                              selectedItem?.officerId ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}`}>
-                              {selectedItem?.close ? 'Resolved' : selectedItem?.officerId ? 'In Progress' : 'Submitted'}
-                            </span>
-                          </p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Station ID</label>
-                          <p className="font-medium">{selectedItem?.stationId}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Officer ID</label>
-                          <p className="font-medium">{selectedItem?.officerId || 'Not Assigned'}</p>
-                        </div>
-                      </div>
-                      <div className="mt-4">
-                        <label className="block text-gray-500 text-sm">Complaint Description</label>
-                        <p className="mt-1">{selectedItem?.complain}</p>
-                      </div>
-                    </>
-                  )}
-
-                  {modalType === 'viewUser' && (
-                    <>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-gray-500 text-sm">Aadhar ID</label>
-                          <p className="font-medium">{selectedItem?.aid}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Name</label>
-                          <p className="font-medium">{selectedItem?.User_name}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Email</label>
-                          <p className="font-medium">{selectedItem?.email}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Phone</label>
-                          <p className="font-medium">{selectedItem?.phone_no}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Gender</label>
-                          <p className="font-medium">{selectedItem?.gender}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Date of Birth</label>
-                          <p className="font-medium">{selectedItem?.dob}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Address</label>
-                          <p className="font-medium">{selectedItem?.address}</p>
                         </div>
                       </div>
                     </>

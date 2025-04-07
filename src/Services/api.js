@@ -13,7 +13,6 @@ const apiClient = axios.create({
 
 // User related API calls
 export const userAPI = {
-  // Existing methods
   register: (userData) => {
     const formattedData = {
       ...userData,
@@ -37,7 +36,6 @@ export const userAPI = {
         }
       });
   },
-  // New methods
   deleteUser: (id) => {
     return apiClient.delete(`/user/delete/${id}`);
   }
@@ -45,7 +43,6 @@ export const userAPI = {
 
 // FIR related API calls
 export const firAPI = {
-  // Add new FIR
   addFIR: (firData) => {
     // Format data for the backend
     const formattedData = {
@@ -59,27 +56,18 @@ export const firAPI = {
     };
     return apiClient.post('/fir/addfir', formattedData);
   },
-
-  // Get all FIRs
   getAllFIRs: () => {
     return apiClient.get('/fir/allfir');
   },
-
-  // Get FIR by ID
   getFIRById: (id) => {
     return apiClient.get(`/fir/findbyid/${id}`);
   },
-
-  // Assign officer to FIR
   assignOfficer: (firId, officerId) => {
     return apiClient.post(`/fir/assignofficer/${firId}/${officerId}`);
   },
-
-  // Close FIR
   closeFIR: (firId) => {
     return apiClient.post(`/fir/close/${firId}`);
   },
-
   updateStatus: (firId, status) => {
     return apiClient.post(`/fir/update-status/${firId}/${status}`);
   },
@@ -87,7 +75,6 @@ export const firAPI = {
 
 // Police related API calls
 export const policeAPI = {
-  // Existing methods
   addPolice: (policeData) => {
     return apiClient.post('/police/add', policeData);
   },
@@ -97,22 +84,12 @@ export const policeAPI = {
   getPoliceById: (id) => {
     return apiClient.get(`/police/police/${id}`);
   },
-  login: (credentials) => {
-    return apiClient.get('/police/allpolice')
-      .then(response => {
-        const officers = response.data;
-        const officer = officers.find(
-          o => o.hrms === parseInt(credentials.hrms) && o.password === credentials.password
-        );
-        if (officer) {
-          return { data: officer };
-        } else {
-          throw new Error("Invalid credentials");
-        }
-      });
+  updatePolice: (policeData) => {
+    return apiClient.put(`/police/update/${policeData.hrms}`, policeData);
   },
-
-  // Login (client-side implementation until backend supports it)
+  deletePolice: (id) => {
+    return apiClient.delete(`/police/delete/${id}`);
+  },
   login: (credentials) => {
     return apiClient.get('/police/allpolice')
       .then(response => {
@@ -131,65 +108,67 @@ export const policeAPI = {
 
 // Station related API calls
 export const stationAPI = {
-  // Existing methods
   addStation: (stationData) => {
-    return apiClient.post('/station/add', stationData);
+    // Format data for the backend
+    const formattedData = {
+      ...stationData,
+      StationInchargeId: stationData.StationInchargeId ? parseInt(stationData.StationInchargeId) : 0
+    };
+    return apiClient.post('/station/add', formattedData);
   },
   getAllStations: () => {
-    return apiClient.get('/station/allstation');
+    return apiClient.get('/station/allstation')
+      .then(response => {
+        // Fix potential field name issues
+        const fixedData = response.data?.map(station => ({
+          ...station,
+          StationInchargeId: station.StationInchargeId || station.stationInchargeId
+        }));
+        return { ...response, data: fixedData };
+      });
   },
   getStationById: (id) => {
     return apiClient.get(`/station/station/${id}`);
   },
-  // New methods
   updateStation: (stationData) => {
-    return apiClient.put(`/station/update/${stationData.stationSid}`, stationData);
+    // Ensure StationInchargeId is properly formatted
+    const formattedData = {
+      ...stationData,
+      StationInchargeId: stationData.StationInchargeId ? parseInt(stationData.StationInchargeId) : 0
+    };
+    return apiClient.put(`/station/update/${formattedData.stationSid}`, formattedData);
   },
   deleteStation: (id) => {
     return apiClient.delete(`/station/delete/${id}`);
+  },
+  updateStationIncharge: (stationId, officerId) => {
+    return apiClient.put(`/station/update/stationIncharge/${officerId}/${stationId}`);
   }
 };
 
-
-// Add to src/Services/api.js
-
+// Admin API calls
 export const adminAPI = {
-  // Register new admin
   register: (adminData) => {
     return apiClient.post('/admin/register', adminData);
   },
-
-  // Admin login
   login: (credentials) => {
     return apiClient.post('/admin/login', credentials);
   },
-
-  // Get pending police approvals
   getPendingPoliceApprovals: () => {
     return apiClient.get('/admin/pending-police');
   },
-
-  // Approve police
   approvePolice: (hrms) => {
     return apiClient.post(`/admin/approve-police/${hrms}`);
   },
-
-  // Deny police
   denyPolice: (hrms) => {
     return apiClient.post(`/admin/deny-police/${hrms}`);
   },
-
-  // Get pending station approvals
   getPendingStationApprovals: () => {
     return apiClient.get('/admin/pending-stations');
   },
-
-  // Approve station
   approveStation: (sid) => {
     return apiClient.post(`/admin/approve-station/${sid}`);
   },
-
-  // Deny station
   denyStation: (sid) => {
     return apiClient.post(`/admin/deny-station/${sid}`);
   }
