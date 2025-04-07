@@ -116,6 +116,23 @@ const AdminPortal = () => {
     }
   };
 
+  // Add this function to handle suspending a police officer
+  const handleSuspendPolice = async (hrms) => {
+    if (window.confirm('Are you sure you want to suspend this police officer? They will not be able to login until re-approved.')) {
+      setIsProcessing(true);
+      try {
+        await adminAPI.suspendPolice(hrms);
+        alert('Police officer suspended successfully');
+        refreshData(); // Refresh all data
+      } catch (error) {
+        console.error('Error suspending police officer:', error);
+        alert('Failed to suspend police officer. Please try again.');
+      } finally {
+        setIsProcessing(false);
+      }
+    }
+  };
+
   const handleApprovePolice = async (hrms) => {
     setIsProcessing(true);
     try {
@@ -869,68 +886,85 @@ const AdminPortal = () => {
                     </button>
                   </div>
 
-                  {allPolice.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full">
-                        <thead className="bg-gray-100">
-                          <tr>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">HRMS ID</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station ID</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {allPolice.map((officer) => (
-                            <tr key={officer.hrms} className="hover:bg-gray-50">
-                              <td className="py-3 px-4">{officer.hrms}</td>
-                              <td className="py-3 px-4">{officer.name}</td>
-                              <td className="py-3 px-4">{officer.position}</td>
-                              <td className="py-3 px-4">{officer.email}</td>
-                              <td className="py-3 px-4">{officer.stationId}</td>
-                              <td className="py-3 px-4">
-                                <span className={`px-2 py-1 rounded-full text-xs ${officer.approval ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                                  {officer.approval ? 'Approved' : 'Pending'}
-                                </span>
-                              </td>
-                              <td className="py-3 px-4">
-                                <div className="flex space-x-2">
-                                  <button
-                                    onClick={() => handleViewPoliceDetails(officer)}
-                                    className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm"
-                                  >
-                                    View
-                                  </button>
-                                  <button
-                                    onClick={() => handleEditPolice(officer)}
-                                    className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm"
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeletePolice(officer.hrms)}
-                                    className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
-                                  >
-                                    Delete
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                  {isLoading ? (
+                    <div className="flex justify-center items-center h-64">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-700"></div>
                     </div>
                   ) : (
-                    <div className="p-6 text-center text-gray-500">
-                      No police officers found
-                    </div>
+                    <>
+                      {/* Filter only approved police officers */}
+                      {allPolice.filter(officer => officer.approval === true).length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full">
+                            <thead className="bg-gray-100">
+                              <tr>
+                                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">HRMS ID</th>
+                                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
+                                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station ID</th>
+                                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {/* Filter to only show approved officers */}
+                              {allPolice
+                                .filter(officer => officer.approval === true)
+                                .map((officer) => (
+                                  <tr key={officer.hrms} className="hover:bg-gray-50">
+                                    <td className="py-3 px-4">{officer.hrms}</td>
+                                    <td className="py-3 px-4">{officer.name}</td>
+                                    <td className="py-3 px-4">{officer.position}</td>
+                                    <td className="py-3 px-4">{officer.email}</td>
+                                    <td className="py-3 px-4">{officer.stationId}</td>
+                                    <td className="py-3 px-4">
+                                      <span className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
+                                        Active
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <div className="flex space-x-2">
+                                        <button
+                                          onClick={() => handleViewPoliceDetails(officer)}
+                                          className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm"
+                                        >
+                                          View
+                                        </button>
+                                        <button
+                                          onClick={() => handleEditPolice(officer)}
+                                          className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm"
+                                        >
+                                          Edit
+                                        </button>
+                                        <button
+                                          onClick={() => handleSuspendPolice(officer.hrms)}
+                                          className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1 rounded text-sm"
+                                        >
+                                          Suspend
+                                        </button>
+                                        <button
+                                          onClick={() => handleDeletePolice(officer.hrms)}
+                                          className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
+                                        >
+                                          Delete
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="p-6 text-center text-gray-500">
+                          No approved police officers found
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
-
               {/* Users Tab */}
               {activeTab === 'users' && (
                 <div className="bg-white rounded-lg shadow-lg overflow-hidden">
@@ -1610,20 +1644,24 @@ const AdminPortal = () => {
                           <option value="">Select an Officer</option>
                           {allPolice
                             .filter(officer =>
-                              officer.approval
+                              officer.approval &&
+                              officer.stationId?.toString() === selectedItem?.stationId?.toString()
                             )
                             .map(officer => (
                               <option key={officer.hrms} value={officer.hrms}>
-                                {officer.name} ({officer.position}) - Station ID: {officer.stationId}
+                                {officer.name} ({officer.position})
                               </option>
                             ))
                           }
                         </select>
-                        {allPolice.filter(officer => officer.approval).length === 0 && (
-                          <p className="mt-2 text-sm text-red-600">
-                            No approved officers available. Please approve officers first.
-                          </p>
-                        )}
+                        {allPolice.filter(officer =>
+                          officer.approval &&
+                          officer.stationId?.toString() === selectedItem?.stationId?.toString()
+                        ).length === 0 && (
+                            <p className="mt-2 text-sm text-red-600">
+                              No approved officers available for this station. Please approve officers for this station first.
+                            </p>
+                          )}
                       </div>
                     </>
                   )}

@@ -171,7 +171,13 @@ export const adminAPI = {
   },
   denyStation: (sid) => {
     return apiClient.post(`/admin/deny-station/${sid}`);
-  }
+  },
+  suspendPolice: (hrms) => {
+    return apiClient.post(`/admin/suspend-police/${hrms}`);
+  },
+  suspendStation: (sid) => {
+    return apiClient.post(`/admin/suspend-station/${sid}`);
+  },
 };
 
 // Update the default export
