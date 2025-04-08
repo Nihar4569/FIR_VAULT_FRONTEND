@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../../Components/Navbar';
 import Footer from '../../Components/Footer';
+import { stationAPI } from '../../Services/api';
 
 const StationLogin = () => {
   const [credentials, setCredentials] = useState({
-    stationCode: '',
-    password: ''
+    stationSid: '', // Changed from stationCode to stationSid to match backend
+    pass: ''        // Changed from password to pass to match backend
   });
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -25,19 +26,32 @@ const StationLogin = () => {
     setError('');
 
     try {
-      // Mock API call - in production, replace with actual API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Get station by stationSid
+      const response = await stationAPI.getStationById(credentials.stationSid);
       
-      // For demo, we'll just check if station code and password are filled
-      if (credentials.stationCode && credentials.password) {
-        // Store token (in production, this would come from your backend)
-        localStorage.setItem('stationToken', 'mock-station-jwt-token');
-        navigate('/station');
+      if (response.data) {
+        // Check if station is approved
+        if (!response.data.approval) {
+          setError('Your station is pending approval. Please contact admin.');
+          setIsLoading(false);
+          return;
+        }
+        
+        // Check if password matches
+        if (response.data.pass === credentials.pass) {
+          // Store station data in localStorage
+          localStorage.setItem('stationToken', 'station-token');
+          localStorage.setItem('stationData', JSON.stringify(response.data));
+          navigate('/station');
+        } else {
+          setError('Invalid password. Please try again.');
+        }
       } else {
-        setError('Please fill all required fields');
+        setError('Station not found. Please check your Station ID.');
       }
     } catch (err) {
-      setError('Invalid credentials. Please try again.');
+      console.error('Login error:', err);
+      setError('Login failed. Please check your credentials and try again.');
     } finally {
       setIsLoading(false);
     }
@@ -47,7 +61,7 @@ const StationLogin = () => {
     <div className="min-h-screen flex flex-col">
       <Navbar />
       <div className="flex-grow pt-20 flex items-center justify-center bg-gray-50">
-        <div className="max-w-md w-full mx-4 bg-white rounded-lg shadow-lg overflow-hidden" >
+        <div className="max-w-md w-full mx-4 bg-white rounded-lg shadow-lg overflow-hidden">
           <div className="bg-blue-700 p-6 text-white text-center">
             <div className="inline-block bg-blue-800 rounded-full p-3 mb-2">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -67,28 +81,28 @@ const StationLogin = () => {
             
             <form onSubmit={handleSubmit}>
               <div className="mb-4">
-                <label htmlFor="stationCode" className="block text-gray-700 text-sm font-medium mb-2">Station Code</label>
+                <label htmlFor="stationSid" className="block text-gray-700 text-sm font-medium mb-2">Station ID</label>
                 <input
                   type="text"
-                  id="stationCode"
-                  name="stationCode"
+                  id="stationSid"
+                  name="stationSid"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter station code"
-                  value={credentials.stationCode}
+                  placeholder="Enter station ID"
+                  value={credentials.stationSid}
                   onChange={handleChange}
                   required
                 />
               </div>
               
               <div className="mb-6">
-                <label htmlFor="password" className="block text-gray-700 text-sm font-medium mb-2">Password</label>
+                <label htmlFor="pass" className="block text-gray-700 text-sm font-medium mb-2">Password</label>
                 <input
                   type="password"
-                  id="password"
-                  name="password"
+                  id="pass"
+                  name="pass"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Enter your password"
-                  value={credentials.password}
+                  value={credentials.pass}
                   onChange={handleChange}
                   required
                 />

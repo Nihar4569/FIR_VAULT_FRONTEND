@@ -396,7 +396,8 @@ const AdminPortal = () => {
           const stationData = {
             ...formData,
             stationSid: formData.pinCode, // Set stationSid equal to pinCode
-            approval: true // Admin created stations are auto-approved
+            approval: true, // Admin created stations are auto-approved
+            pass: formData.pass // Include the password
           };
           await stationAPI.addStation(stationData);
           alert('Station added successfully');
@@ -1457,6 +1458,21 @@ const AdminPortal = () => {
                           required
                         />
                       </div>
+
+                      {modalType === 'addStation' && (
+                        <div className="mb-4">
+                          <label htmlFor="pass" className="block text-gray-700 text-sm font-medium mb-2">Password</label>
+                          <input
+                            type="password"
+                            id="pass"
+                            name="pass"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            value={formData.pass || ''}
+                            onChange={handleInputChange}
+                            required
+                          />
+                        </div>
+                      )}
                     </>
                   )}
 
