@@ -190,7 +190,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 👥 Authors
 
-- **Nihar Ranjan Sahu** - [GitHub Profile](https://github.com/Nihar4569) - Frontend & Backend Development
+- **Nihar Ranjan Sahu** - [GitHub Profile](https://github.com/Nihar4569) - Frontend & Backend Development (LEAD)
 - **Ansuman Nanda** - [GitHub Profile](https://github.com/AnsumanNanda) - Backend Development 
 
 ## 🙏 Acknowledgements
