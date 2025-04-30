@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import Footer from '../../Components/Footer';
 import Navbar from '../../Components/Navbar';
 import { userAPI } from '../../Services/api';
+import { useAuth } from '../../Context/AuthContext';
+
 
 const UserLogin = () => {
   const [credentials, setCredentials] = useState({
@@ -12,6 +14,8 @@ const UserLogin = () => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { loginUser } = useAuth();
+
 
   const handleChange = (e) => {
     setCredentials({
@@ -43,6 +47,7 @@ const UserLogin = () => {
           // Store user data in localStorage
           localStorage.setItem('userToken', 'user-mock-token');
           localStorage.setItem('userData', JSON.stringify(userData));
+          loginUser(userData);
           navigate('/user');
         } else {
           setError('Invalid password. Please try again.');

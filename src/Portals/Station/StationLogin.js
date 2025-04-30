@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import Navbar from '../../Components/Navbar';
 import Footer from '../../Components/Footer';
 import { stationAPI } from '../../Services/api';
+import { useAuth } from '../../Context/AuthContext';
+
 
 const StationLogin = () => {
   const [credentials, setCredentials] = useState({
@@ -13,6 +15,8 @@ const StationLogin = () => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { loginStation } = useAuth();
+
 
   const handleChange = (e) => {
     setCredentials({
@@ -46,6 +50,7 @@ const StationLogin = () => {
         // Store station data and token in localStorage
         localStorage.setItem('stationToken', 'station-token');
         localStorage.setItem('stationData', JSON.stringify(stationData));
+        loginStation(stationData);
         navigate('/station');
       } else {
         setError('Invalid credentials. Please try again.');

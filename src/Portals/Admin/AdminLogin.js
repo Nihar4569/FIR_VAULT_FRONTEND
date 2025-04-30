@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import Navbar from '../../Components/Navbar';
 import Footer from '../../Components/Footer';
 import { adminAPI } from '../../Services/api';
+import { useAuth } from '../../Context/AuthContext';
+
 
 const AdminLogin = () => {
   const [credentials, setCredentials] = useState({
@@ -13,6 +15,8 @@ const AdminLogin = () => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { loginAdmin } = useAuth();
+
 
   const handleChange = (e) => {
     setCredentials({
@@ -40,6 +44,7 @@ const AdminLogin = () => {
       if (adminData) {
         localStorage.setItem('adminToken', 'admin-token');
         localStorage.setItem('adminData', JSON.stringify(adminData));
+        loginAdmin(adminData);
         navigate('/admin');
       } else {
         setError('Invalid credentials. Please try again.');

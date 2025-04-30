@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import Footer from '../../Components/Footer';
 import Navbar from '../../Components/Navbar';
 import { policeAPI } from '../../Services/api';
+import { useAuth } from '../../Context/AuthContext';
+
 
 const PoliceLogin = () => {
   const [credentials, setCredentials] = useState({
@@ -12,6 +14,8 @@ const PoliceLogin = () => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { loginPolice } = useAuth();
+
 
   const handleChange = (e) => {
     setCredentials({
@@ -39,6 +43,7 @@ const PoliceLogin = () => {
       if (policeData) {
         localStorage.setItem('policeToken', 'police-mock-token');
         localStorage.setItem('policeData', JSON.stringify(policeData));
+        loginPolice(policeData);
         navigate('/police');
       } else {
         setError('Invalid credentials or account not approved.');
