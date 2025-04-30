@@ -25,17 +25,37 @@ const AdminLogin = () => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
-
+  
     try {
+      // Validate inputs
+      if (!credentials.username || !credentials.password) {
+        setError('Username and password are required');
+        setIsLoading(false);
+        return;
+      }
+  
       const response = await adminAPI.login(credentials);
-      if (response.data) {
+      const adminData = response?.data || response;
+      
+      if (adminData) {
         localStorage.setItem('adminToken', 'admin-token');
-        localStorage.setItem('adminData', JSON.stringify(response.data));
+        localStorage.setItem('adminData', JSON.stringify(adminData));
         navigate('/admin');
+      } else {
+        setError('Invalid credentials. Please try again.');
       }
     } catch (err) {
-      setError('Invalid credentials. Please try again.');
       console.error('Login error:', err);
+      
+      if (err.response) {
+        if (err.response.status === 401) {
+          setError('Invalid credentials. Please try again.');
+        } else {
+          setError('Login failed: ' + (err.response.data?.message || err.message));
+        }
+      } else {
+        setError('Unable to connect to server. Please try again later.');
+      }
     } finally {
       setIsLoading(false);
     }

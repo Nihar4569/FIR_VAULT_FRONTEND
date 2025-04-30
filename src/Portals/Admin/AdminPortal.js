@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Navbar from '../../Components/Navbar';
 import Footer from '../../Components/Footer';
 import { adminAPI, policeAPI, stationAPI, firAPI, userAPI } from '../../Services/api';
+import CriminalList from '../Criminal/CriminalList';
+import { LinkCriminalModal } from '../Criminal';
+import { getErrorMessage } from '../../utils/errorUtils';
+import { formatDate, getStatusDisplayClass, getStatusDisplayName } from '../../utils/dataUtils';
+import { useAuth } from '../../Context/AuthContext';
 
 const AdminPortal = () => {
-  const [admin, setAdmin] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { adminAuth, isAdminAuthenticated, logoutAdmin } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [pendingPolice, setPendingPolice] = useState([]);
@@ -24,6 +28,8 @@ const AdminPortal = () => {
   const [formData, setFormData] = useState({});
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
+  const [isLinkCriminalModalOpen, setIsLinkCriminalModalOpen] = useState(false);
+  const [linkingFirId, setLinkingFirId] = useState(null);
 
   // Stats
   const [stats, setStats] = useState({
@@ -40,30 +46,19 @@ const AdminPortal = () => {
 
   // Fetch all data whenever refreshKey changes
   useEffect(() => {
-    // Check if admin is logged in
-    const token = localStorage.getItem('adminToken');
-    const adminData = localStorage.getItem('adminData');
-
-    if (!token || !adminData) {
+    if (!isAdminAuthenticated) {
       navigate('/admin/login');
       return;
     }
 
-    setAdmin(JSON.parse(adminData));
-    setIsAuthenticated(true);
-
     // Fetch all data
     fetchAllData();
-  }, [navigate, refreshKey]);
+  }, [navigate, refreshKey, isAdminAuthenticated]);
 
-  useEffect(() => {
-    console.log("All Police:", allPolice.map(p => ({ id: p.hrms, name: p.name })));
-    console.log("All Stations with incharge IDs:", allStations.map(s => ({
-      stationId: s.stationSid,
-      inchargeId: s.StationInchargeId,
-      inchargeIdType: typeof s.StationInchargeId
-    })));
-  }, [allPolice, allStations]);
+  const openLinkCriminalModal = (firId) => {
+    setLinkingFirId(firId);
+    setIsLinkCriminalModalOpen(true);
+  };
 
   const refreshData = () => {
     setRefreshKey(oldKey => oldKey + 1); // Increment refreshKey to trigger a refresh
@@ -71,7 +66,10 @@ const AdminPortal = () => {
 
   const fetchAllData = async () => {
     setIsLoading(true);
+    setError('');
+    
     try {
+      // Fetch all data in parallel
       const [
         policeResponse,
         stationResponse,
@@ -88,29 +86,45 @@ const AdminPortal = () => {
         firAPI.getAllFIRs()
       ]);
 
-      setAllPolice(policeResponse.data || []);
-      setAllStations(stationResponse.data || []);
-      setPendingPolice(pendingPoliceResponse.data || []);
-      setPendingStations(pendingStationResponse.data || []);
-      setAllUsers(usersResponse.data || []);
-      setAllFIRs(firsResponse.data || []);
+      // Safely extract data handling both response.data and direct response formats
+      const extractData = (response) => response?.data || response || [];
+
+      const allPoliceData = extractData(policeResponse);
+      const allStationsData = extractData(stationResponse);
+      const pendingPoliceData = extractData(pendingPoliceResponse);
+      const pendingStationsData = extractData(pendingStationResponse);
+      const allUsersData = extractData(usersResponse);
+      const allFIRsData = extractData(firsResponse);
+
+      // Ensure all are arrays before setting state
+      setAllPolice(Array.isArray(allPoliceData) ? allPoliceData : []);
+      setAllStations(Array.isArray(allStationsData) ? allStationsData : []);
+      setPendingPolice(Array.isArray(pendingPoliceData) ? pendingPoliceData : []);
+      setPendingStations(Array.isArray(pendingStationsData) ? pendingStationsData : []);
+      setAllUsers(Array.isArray(allUsersData) ? allUsersData : []);
+      setAllFIRs(Array.isArray(allFIRsData) ? allFIRsData : []);
 
       // Calculate stats
-      const resolvedFIRs = firsResponse.data ? firsResponse.data.filter(fir => fir.close).length : 0;
-      const pendingFIRs = firsResponse.data ? firsResponse.data.filter(fir => !fir.close).length : 0;
+      const resolvedFIRs = Array.isArray(allFIRsData) ? 
+        allFIRsData.filter(fir => fir.close).length : 0;
+      
+      const pendingFIRs = Array.isArray(allFIRsData) ? 
+        allFIRsData.filter(fir => !fir.close).length : 0;
 
       setStats({
-        totalUsers: usersResponse.data ? usersResponse.data.length : 0,
-        totalPolice: policeResponse.data ? policeResponse.data.length : 0,
-        totalStations: stationResponse.data ? stationResponse.data.length : 0,
-        totalFIRs: firsResponse.data ? firsResponse.data.length : 0,
-        pendingApprovals: (pendingPoliceResponse.data?.length || 0) + (pendingStationResponse.data?.length || 0),
+        totalUsers: Array.isArray(allUsersData) ? allUsersData.length : 0,
+        totalPolice: Array.isArray(allPoliceData) ? allPoliceData.length : 0,
+        totalStations: Array.isArray(allStationsData) ? allStationsData.length : 0,
+        totalFIRs: Array.isArray(allFIRsData) ? allFIRsData.length : 0,
+        pendingApprovals: 
+          (Array.isArray(pendingPoliceData) ? pendingPoliceData.length : 0) + 
+          (Array.isArray(pendingStationsData) ? pendingStationsData.length : 0),
         resolvedFIRs,
         pendingFIRs
       });
     } catch (error) {
       console.error('Error fetching data:', error);
-      alert('Failed to fetch data. Please try again later.');
+      setError(getErrorMessage(error) || 'Failed to fetch data. Please try again later.');
     } finally {
       setIsLoading(false);
     }
@@ -126,7 +140,7 @@ const AdminPortal = () => {
         refreshData(); // Refresh all data
       } catch (error) {
         console.error('Error suspending police officer:', error);
-        alert('Failed to suspend police officer. Please try again.');
+        alert('Failed to suspend police officer: ' + getErrorMessage(error));
       } finally {
         setIsProcessing(false);
       }
@@ -143,7 +157,7 @@ const AdminPortal = () => {
       refreshData(); // Refresh all data
     } catch (error) {
       console.error('Error approving police:', error);
-      alert('Failed to approve police officer. Please try again.');
+      alert('Failed to approve police officer: ' + getErrorMessage(error));
     } finally {
       setIsProcessing(false);
     }
@@ -159,7 +173,7 @@ const AdminPortal = () => {
       refreshData(); // Refresh all data
     } catch (error) {
       console.error('Error denying police:', error);
-      alert('Failed to reject police officer. Please try again.');
+      alert('Failed to reject police officer: ' + getErrorMessage(error));
     } finally {
       setIsProcessing(false);
     }
@@ -175,7 +189,7 @@ const AdminPortal = () => {
       refreshData(); // Refresh all data
     } catch (error) {
       console.error('Error approving station:', error);
-      alert('Failed to approve station. Please try again.');
+      alert('Failed to approve station: ' + getErrorMessage(error));
     } finally {
       setIsProcessing(false);
     }
@@ -191,7 +205,7 @@ const AdminPortal = () => {
       refreshData(); // Refresh all data
     } catch (error) {
       console.error('Error denying station:', error);
-      alert('Failed to reject station. Please try again.');
+      alert('Failed to reject station: ' + getErrorMessage(error));
     } finally {
       setIsProcessing(false);
     }
@@ -212,7 +226,7 @@ const AdminPortal = () => {
         refreshData();
       } catch (error) {
         console.error('Error deleting station:', error);
-        alert('Failed to delete station. Please try again.');
+        alert('Failed to delete station: ' + getErrorMessage(error));
       } finally {
         setIsProcessing(false);
       }
@@ -234,7 +248,7 @@ const AdminPortal = () => {
         refreshData();
       } catch (error) {
         console.error('Error deleting police officer:', error);
-        alert('Failed to delete police officer. Please try again.');
+        alert('Failed to delete police officer: ' + getErrorMessage(error));
       } finally {
         setIsProcessing(false);
       }
@@ -248,32 +262,50 @@ const AdminPortal = () => {
     setError('');
 
     try {
-      // Find the selected officer to get their name
+      // Validate inputs
+      if (!formData.stationInchargeId) {
+        setError('Please select an officer');
+        setIsProcessing(false);
+        return;
+      }
+
+      if (!selectedItem?.stationSid) {
+        setError('Station ID is missing');
+        setIsProcessing(false);
+        return;
+      }
+
+      // Find the selected officer
       const selectedOfficer = allPolice.find(officer =>
-        officer.hrms.toString() === formData.stationInchargeId.toString()
+        officer.hrms && officer.hrms.toString() === formData.stationInchargeId.toString()
       );
 
       if (!selectedOfficer) {
-        throw new Error('Selected officer not found');
+        setError('Selected officer not found');
+        setIsProcessing(false);
+        return;
       }
 
       // Call the API to update just the StationInchargeId
-      await stationAPI.updateStationIncharge(
+      const response = await stationAPI.updateStationIncharge(
         selectedItem.stationSid,
         parseInt(formData.stationInchargeId)
       );
 
-      alert('Station incharge updated successfully');
-      setIsModalOpen(false);
-      refreshData();
+      if (response) {
+        alert('Station incharge updated successfully');
+        setIsModalOpen(false);
+        refreshData();
+      } else {
+        setError('Failed to update station incharge. Please try again.');
+      }
     } catch (error) {
       console.error('Error updating station incharge:', error);
-      setError('Failed to update station incharge. Please try again.');
+      setError('Failed to update station incharge: ' + getErrorMessage(error));
     } finally {
       setIsProcessing(false);
     }
   };
-
 
   // Function to handle input change in modal forms
   const handleInputChange = (e) => {
@@ -310,8 +342,30 @@ const AdminPortal = () => {
         position: item.position || '',
         stationId: item.stationId || ''
       });
-    } else if (type === 'viewPolice' || type === 'viewStation' || type === 'viewFIR' || type === 'viewUser') {
-      // For view modals, just use the item as is
+    } else if (type === 'addStation') {
+      setFormData({
+        stationName: '',
+        address: '',
+        pinCode: '',
+        phoneNo: '',
+        sEmail: '',
+        pass: '' // Include password for new stations
+      });
+    } else if (type === 'addPolice') {
+      setFormData({
+        hrms: '',
+        name: '',
+        email: '',
+        phone_no: '',
+        position: '',
+        gender: 'Male',
+        stationId: '',
+        password: ''
+      });
+    } else if (type === 'reassignFIR') {
+      setFormData({
+        officerId: item.officerId || ''
+      });
     }
 
     setIsModalOpen(true);
@@ -360,7 +414,7 @@ const AdminPortal = () => {
         refreshData(); // Refresh the data
       } catch (error) {
         console.error('Error deleting user:', error);
-        alert('Failed to delete user. Please try again.');
+        alert('Failed to delete user: ' + getErrorMessage(error));
       } finally {
         setIsProcessing(false);
       }
@@ -396,8 +450,7 @@ const AdminPortal = () => {
           const stationData = {
             ...formData,
             stationSid: formData.pinCode, // Set stationSid equal to pinCode
-            approval: true, // Admin created stations are auto-approved
-            pass: formData.pass // Include the password
+            approval: true // Admin created stations are auto-approved
           };
           await stationAPI.addStation(stationData);
           alert('Station added successfully');
@@ -424,16 +477,14 @@ const AdminPortal = () => {
       refreshData();
     } catch (error) {
       console.error('Error submitting form:', error);
-      setError('Failed to submit form. Please try again.');
+      setError('Failed to submit form: ' + getErrorMessage(error));
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('adminToken');
-    localStorage.removeItem('adminData');
-    setIsAuthenticated(false);
+    logoutAdmin();
     navigate('/admin/login');
   };
 
@@ -452,7 +503,7 @@ const AdminPortal = () => {
                 </div>
                 <div>
                   <h1 className="text-2xl font-bold">Admin Portal</h1>
-                  <p className="text-purple-200">Welcome, {admin?.fullName || 'Administrator'}</p>
+                  <p className="text-purple-200">Welcome, {adminAuth?.fullName || 'Administrator'}</p>
                 </div>
               </div>
               <button
@@ -463,6 +514,13 @@ const AdminPortal = () => {
               </button>
             </div>
           </div>
+
+          {/* Display error if any */}
+          {error && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+              {error}
+            </div>
+          )}
 
           {/* Navigation Tabs */}
           <div className="bg-white rounded-lg shadow-lg overflow-hidden mb-8">
@@ -508,6 +566,12 @@ const AdminPortal = () => {
                 onClick={() => setActiveTab('firs')}
               >
                 FIRs
+              </button>
+              <button
+                className={`py-4 px-6 text-center font-medium cursor-pointer transition ${activeTab === 'criminals' ? 'bg-purple-600 text-white' : 'hover:bg-gray-100'}`}
+                onClick={() => setActiveTab('criminals')}
+              >
+                Criminals
               </button>
             </div>
           </div>
@@ -615,1101 +679,1141 @@ const AdminPortal = () => {
                         <div className="flex items-center">
                           <div className="bg-pink-100 p-3 rounded-full mr-4">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-pink-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                          </div>
-                          <div>
-                            <p className="text-gray-600 text-sm">Pending FIRs</p>
-                            <p className="text-2xl font-bold">{stats.pendingFIRs}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                           </svg>
+                         </div>
+                         <div>
+                           <p className="text-gray-600 text-sm">Pending FIRs</p>
+                           <p className="text-2xl font-bold">{stats.pendingFIRs}</p>
+                         </div>
+                       </div>
+                     </div>
+                   </div>
 
-                    <div className="border-t pt-4">
-                      <h3 className="font-semibold text-lg mb-4">Quick Actions</h3>
-                      <div className="flex flex-wrap gap-4">
-                        <button
-                          onClick={() => setActiveTab('police')}
-                          className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
-                        >
-                          Review Police Approvals
-                        </button>
-                        <button
-                          onClick={() => setActiveTab('stations')}
-                          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                        >
-                          Review Station Approvals
-                        </button>
-                        <button
-                          onClick={() => setActiveTab('manageStations')}
-                          className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                        >
-                          Manage Stations
-                        </button>
-                        <button
-                          onClick={() => setActiveTab('firs')}
-                          className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700"
-                        >
-                          View FIRs
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+                   <div className="border-t pt-4">
+                     <h3 className="font-semibold text-lg mb-4">Quick Actions</h3>
+                     <div className="flex flex-wrap gap-4">
+                       <button
+                         onClick={() => setActiveTab('police')}
+                         className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
+                       >
+                         Review Police Approvals
+                       </button>
+                       <button
+                         onClick={() => setActiveTab('stations')}
+                         className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                       >
+                         Review Station Approvals
+                       </button>
+                       <button
+                         onClick={() => setActiveTab('manageStations')}
+                         className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                       >
+                         Manage Stations
+                       </button>
+                       <button
+                         onClick={() => setActiveTab('firs')}
+                         className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700"
+                       >
+                         View FIRs
+                       </button>
+                     </div>
+                   </div>
+                 </div>
+               </div>
+             )}
 
-              {/* Police Approvals Tab */}
-              {activeTab === 'police' && (
-                <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-                  <div className="p-4 bg-gray-50 border-b">
-                    <h2 className="font-semibold text-lg">Pending Police Approvals</h2>
-                  </div>
+             {/* Police Approvals Tab */}
+             {activeTab === 'police' && (
+               <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                 <div className="p-4 bg-gray-50 border-b">
+                   <h2 className="font-semibold text-lg">Pending Police Approvals</h2>
+                 </div>
 
-                  {pendingPolice.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full">
-                        <thead className="bg-gray-100">
-                          <tr>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">HRMS ID</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station ID</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {pendingPolice.map((police) => (
-                            <tr key={police.hrms} className="hover:bg-gray-50">
-                              <td className="py-3 px-4">{police.hrms}</td>
-                              <td className="py-3 px-4">{police.name}</td>
-                              <td className="py-3 px-4">{police.email}</td>
-                              <td className="py-3 px-4">{police.position}</td>
-                              <td className="py-3 px-4">{police.stationId}</td>
-                              <td className="py-3 px-4">
-                                <div className="flex space-x-2">
-                                  <button
-                                    onClick={() => handleApprovePolice(police.hrms)}
-                                    className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm"
-                                    disabled={isProcessing}
-                                  >
-                                    {isProcessing ? 'Processing...' : 'Approve'}
-                                  </button>
-                                  <button
-                                    onClick={() => handleDenyPolice(police.hrms)}
-                                    className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
-                                    disabled={isProcessing}
-                                  >
-                                    {isProcessing ? 'Processing...' : 'Deny'}
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="p-6 text-center text-gray-500">
-                      No pending police approvals
-                    </div>
-                  )}
-                </div>
-              )}
+                 {pendingPolice.length > 0 ? (
+                   <div className="overflow-x-auto">
+                     <table className="min-w-full">
+                       <thead className="bg-gray-100">
+                         <tr>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">HRMS ID</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station ID</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                         </tr>
+                       </thead>
+                       <tbody className="divide-y divide-gray-200">
+                         {pendingPolice.map((police) => (
+                           <tr key={police.hrms} className="hover:bg-gray-50">
+                             <td className="py-3 px-4">{police.hrms}</td>
+                             <td className="py-3 px-4">{police.name}</td>
+                             <td className="py-3 px-4">{police.email}</td>
+                             <td className="py-3 px-4">{police.position}</td>
+                             <td className="py-3 px-4">{police.stationId}</td>
+                             <td className="py-3 px-4">
+                               <div className="flex space-x-2">
+                                 <button
+                                   onClick={() => handleApprovePolice(police.hrms)}
+                                   className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm"
+                                   disabled={isProcessing}
+                                 >
+                                   {isProcessing ? 'Processing...' : 'Approve'}
+                                 </button>
+                                 <button
+                                   onClick={() => handleDenyPolice(police.hrms)}
+                                   className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
+                                   disabled={isProcessing}
+                                 >
+                                   {isProcessing ? 'Processing...' : 'Deny'}
+                                 </button>
+                               </div>
+                             </td>
+                           </tr>
+                         ))}
+                       </tbody>
+                     </table>
+                   </div>
+                 ) : (
+                   <div className="p-6 text-center text-gray-500">
+                     No pending police approvals
+                   </div>
+                 )}
+               </div>
+             )}
 
-              {/* Station Approvals Tab */}
-              {activeTab === 'stations' && (
-                <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-                  <div className="p-4 bg-gray-50 border-b">
-                    <h2 className="font-semibold text-lg">Pending Station Approvals</h2>
-                  </div>
+             {/* Station Approvals Tab */}
+             {activeTab === 'stations' && (
+               <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                 <div className="p-4 bg-gray-50 border-b">
+                   <h2 className="font-semibold text-lg">Pending Station Approvals</h2>
+                 </div>
 
-                  {pendingStations.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full">
-                        <thead className="bg-gray-100">
-                          <tr>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station ID</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station Name</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Incharge</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {pendingStations.map((station) => (
-                            <tr key={station.stationSid} className="hover:bg-gray-50">
-                              <td className="py-3 px-4">{station.stationSid}</td>
-                              <td className="py-3 px-4">{station.stationName}</td>
-                              <td className="py-3 px-4">{station.StationInchargeId || 'Not assigned'}</td>
-                              <td className="py-3 px-4">{station.address}</td>
-                              <td className="py-3 px-4">{station.sEmail}</td>
-                              <td className="py-3 px-4">
-                                <div className="flex space-x-2">
-                                  <button
-                                    onClick={() => handleApproveStation(station.stationSid)}
-                                    className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm"
-                                    disabled={isProcessing}
-                                  >
-                                    {isProcessing ? 'Processing...' : 'Approve'}
-                                  </button>
-                                  <button
-                                    onClick={() => handleDenyStation(station.stationSid)}
-                                    className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
-                                    disabled={isProcessing}
-                                  >
-                                    {isProcessing ? 'Processing...' : 'Deny'}
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="p-6 text-center text-gray-500">
-                      No pending station approvals
-                    </div>
-                  )}
-                </div>
-              )}
+                 {pendingStations.length > 0 ? (
+                   <div className="overflow-x-auto">
+                     <table className="min-w-full">
+                       <thead className="bg-gray-100">
+                         <tr>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station ID</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station Name</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Incharge</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                         </tr>
+                       </thead>
+                       <tbody className="divide-y divide-gray-200">
+                         {pendingStations.map((station) => (
+                           <tr key={station.stationSid} className="hover:bg-gray-50">
+                             <td className="py-3 px-4">{station.stationSid}</td>
+                             <td className="py-3 px-4">{station.stationName}</td>
+                             <td className="py-3 px-4">{station.StationInchargeId || 'Not assigned'}</td>
+                             <td className="py-3 px-4">{station.address}</td>
+                             <td className="py-3 px-4">{station.sEmail}</td>
+                             <td className="py-3 px-4">
+                               <div className="flex space-x-2">
+                                 <button
+                                   onClick={() => handleApproveStation(station.stationSid)}
+                                   className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm"
+                                   disabled={isProcessing}
+                                 >
+                                   {isProcessing ? 'Processing...' : 'Approve'}
+                                 </button>
+                                 <button
+                                   onClick={() => handleDenyStation(station.stationSid)}
+                                   className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
+                                   disabled={isProcessing}
+                                 >
+                                   {isProcessing ? 'Processing...' : 'Deny'}
+                                 </button>
+                               </div>
+                             </td>
+                           </tr>
+                         ))}
+                       </tbody>
+                     </table>
+                   </div>
+                 ) : (
+                   <div className="p-6 text-center text-gray-500">
+                     No pending station approvals
+                   </div>
+                 )}
+               </div>
+             )}
 
-              {/* Manage Stations Tab */}
-              {activeTab === 'manageStations' && (
-                <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-                  <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
-                    <h2 className="font-semibold text-lg">Manage Stations</h2>
-                    <button
-                      className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded"
-                      onClick={handleAddNewStation}
-                    >
-                      Add New Station
-                    </button>
-                  </div>
+             {/* Manage Stations Tab */}
+             {activeTab === 'manageStations' && (
+               <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                 <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                   <h2 className="font-semibold text-lg">Manage Stations</h2>
+                   <button
+                     className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded"
+                     onClick={handleAddNewStation}
+                   >
+                     Add New Station
+                   </button>
+                 </div>
 
-                  {allStations.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full">
-                        <thead className="bg-gray-100">
-                          <tr>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station ID</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station Name</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Incharge</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Incharge ID</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {allStations.map((station) => (
-                            <tr key={station.stationSid} className="hover:bg-gray-50">
-                              <td className="py-3 px-4">{station.stationSid}</td>
-                              <td className="py-3 px-4">{station.stationName}</td>
-                              <td className="py-3 px-4">
-                                {station.StationInchargeId ?
-                                  (() => {
-                                    // Find all officers from this station
-                                    const stationOfficers = allPolice.filter(p => p.stationId === station.stationSid.toString());
+                 {allStations.length > 0 ? (
+                   <div className="overflow-x-auto">
+                     <table className="min-w-full">
+                       <thead className="bg-gray-100">
+                         <tr>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station ID</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station Name</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Incharge</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Incharge ID</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                         </tr>
+                       </thead>
+                       <tbody className="divide-y divide-gray-200">
+                         {allStations.map((station) => (
+                           <tr key={station.stationSid} className="hover:bg-gray-50">
+                             <td className="py-3 px-4">{station.stationSid}</td>
+                             <td className="py-3 px-4">{station.stationName}</td>
+                             <td className="py-3 px-4">
+                               {station.StationInchargeId ?
+                                 (() => {
+                                   // Find all officers from this station
+                                   const stationOfficers = allPolice.filter(p => p.stationId === station.stationSid.toString());
 
-                                    // Find the specific officer by HRMS ID
-                                    const officer = allPolice.find(p =>
-                                      parseInt(p.hrms) === parseInt(station.StationInchargeId)
-                                    );
+                                   // Find the specific officer by HRMS ID
+                                   const officer = allPolice.find(p =>
+                                     parseInt(p.hrms) === parseInt(station.StationInchargeId)
+                                   );
 
-                                    // If found, show name, otherwise show ID with unknown message
-                                    return officer ? officer.name :
-                                      `Unknown Officer (ID: ${station.StationInchargeId})`;
-                                  })() :
-                                  'Not assigned'}
-                              </td>
-                              <td className="py-3 px-4">{station.StationInchargeId || 'Not assigned'}</td>
-                              <td className="py-3 px-4">{station.address}</td>
-                              <td className="py-3 px-4">
-                                <span className={`px-2 py-1 rounded-full text-xs ${station.approval ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                                  {station.approval ? 'Approved' : 'Pending'}
-                                </span>
-                              </td>
-                              <td className="py-3 px-4">
-                                <div className="flex space-x-2">
-                                  <button
-                                    onClick={() => handleViewStationDetails(station)}
-                                    className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm"
-                                  >
-                                    View
-                                  </button>
-                                  <button
-                                    onClick={() => openModal('updateStationIncharge', station)}
-                                    className="bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1 rounded text-sm"
-                                  >
-                                    Update Incharge
-                                  </button>
-                                  <button
-                                    onClick={() => handleEditStation(station)}
-                                    className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm"
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteStation(station.stationSid)}
-                                    className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
-                                  >
-                                    Delete
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="p-6 text-center text-gray-500">
-                      No stations found
-                    </div>
-                  )}
-                </div>
-              )}
+                                   // If found, show name, otherwise show ID with unknown message
+                                   return officer ? officer.name :
+                                     `Unknown Officer (ID: ${station.StationInchargeId})`;
+                                 })() :
+                                 'Not assigned'}
+                             </td>
+                             <td className="py-3 px-4">{station.StationInchargeId || 'Not assigned'}</td>
+                             <td className="py-3 px-4">{station.address}</td>
+                             <td className="py-3 px-4">
+                               <span className={`px-2 py-1 rounded-full text-xs ${station.approval ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                                 {station.approval ? 'Approved' : 'Pending'}
+                               </span>
+                             </td>
+                             <td className="py-3 px-4">
+                               <div className="flex space-x-2">
+                                 <button
+                                   onClick={() => handleViewStationDetails(station)}
+                                   className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm"
+                                 >
+                                   View
+                                 </button>
+                                 <button
+                                   onClick={() => openModal('updateStationIncharge', station)}
+                                   className="bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1 rounded text-sm"
+                                 >
+                                   Update Incharge
+                                 </button>
+                                 <button
+                                   onClick={() => handleEditStation(station)}
+                                   className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm"
+                                 >
+                                   Edit
+                                 </button>
+                                 <button
+                                   onClick={() => handleDeleteStation(station.stationSid)}
+                                   className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
+                                 >
+                                   Delete
+                                 </button>
+                               </div>
+                             </td>
+                           </tr>
+                         ))}
+                       </tbody>
+                     </table>
+                   </div>
+                 ) : (
+                   <div className="p-6 text-center text-gray-500">
+                     No stations found
+                   </div>
+                 )}
+               </div>
+             )}
 
-              {/* Manage Police Tab */}
-              {activeTab === 'managePolice' && (
-                <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-                  <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
-                    <h2 className="font-semibold text-lg">Manage Police Officers</h2>
-                    <button
-                      className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded"
-                      onClick={handleAddNewPolice}
-                    >
-                      Add New Officer
-                    </button>
-                  </div>
+             {/* Manage Police Tab */}
+             {activeTab === 'managePolice' && (
+               <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                 <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                   <h2 className="font-semibold text-lg">Manage Police Officers</h2>
+                   <button
+                     className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded"
+                     onClick={handleAddNewPolice}
+                   >
+                     Add New Officer
+                   </button>
+                 </div>
 
-                  {isLoading ? (
-                    <div className="flex justify-center items-center h-64">
-                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-700"></div>
-                    </div>
-                  ) : (
-                    <>
-                      {/* Filter only approved police officers */}
-                      {allPolice.filter(officer => officer.approval === true).length > 0 ? (
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full">
-                            <thead className="bg-gray-100">
-                              <tr>
-                                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">HRMS ID</th>
-                                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
-                                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station ID</th>
-                                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200">
-                              {/* Filter to only show approved officers */}
-                              {allPolice
-                                .filter(officer => officer.approval === true)
-                                .map((officer) => (
-                                  <tr key={officer.hrms} className="hover:bg-gray-50">
-                                    <td className="py-3 px-4">{officer.hrms}</td>
-                                    <td className="py-3 px-4">{officer.name}</td>
-                                    <td className="py-3 px-4">{officer.position}</td>
-                                    <td className="py-3 px-4">{officer.email}</td>
-                                    <td className="py-3 px-4">{officer.stationId}</td>
-                                    <td className="py-3 px-4">
-                                      <span className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
-                                        Active
-                                      </span>
-                                    </td>
-                                    <td className="py-3 px-4">
-                                      <div className="flex space-x-2">
-                                        <button
-                                          onClick={() => handleViewPoliceDetails(officer)}
-                                          className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm"
-                                        >
-                                          View
-                                        </button>
-                                        <button
-                                          onClick={() => handleEditPolice(officer)}
-                                          className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm"
-                                        >
-                                          Edit
-                                        </button>
-                                        <button
-                                          onClick={() => handleSuspendPolice(officer.hrms)}
-                                          className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1 rounded text-sm"
-                                        >
-                                          Suspend
-                                        </button>
-                                        <button
-                                          onClick={() => handleDeletePolice(officer.hrms)}
-                                          className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
-                                        >
-                                          Delete
-                                        </button>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <div className="p-6 text-center text-gray-500">
-                          No approved police officers found
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-              {/* Users Tab */}
-              {activeTab === 'users' && (
-                <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-                  <div className="p-4 bg-gray-50 border-b">
-                    <h2 className="font-semibold text-lg">Manage Users</h2>
-                  </div>
+                 {isLoading ? (
+                   <div className="flex justify-center items-center h-64">
+                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-700"></div>
+                   </div>
+                 ) : (
+                   <>
+                     {/* Filter only approved police officers */}
+                     {allPolice.filter(officer => officer.approval === true).length > 0 ? (
+                       <div className="overflow-x-auto">
+                         <table className="min-w-full">
+                           <thead className="bg-gray-100">
+                             <tr>
+                               <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">HRMS ID</th>
+                               <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                               <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
+                               <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                               <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station ID</th>
+                               <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                               <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                             </tr>
+                           </thead>
+                           <tbody className="divide-y divide-gray-200">
+                             {/* Filter to only show approved officers */}
+                             {allPolice
+                               .filter(officer => officer.approval === true)
+                               .map((officer) => (
+                                 <tr key={officer.hrms} className="hover:bg-gray-50">
+                                   <td className="py-3 px-4">{officer.hrms}</td>
+                                   <td className="py-3 px-4">{officer.name}</td>
+                                   <td className="py-3 px-4">{officer.position}</td>
+                                   <td className="py-3 px-4">{officer.email}</td>
+                                   <td className="py-3 px-4">{officer.stationId}</td>
+                                   <td className="py-3 px-4">
+                                     <span className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
+                                       Active
+                                     </span>
+                                   </td>
+                                   <td className="py-3 px-4">
+                                     <div className="flex space-x-2">
+                                       <button
+                                         onClick={() => handleViewPoliceDetails(officer)}
+                                         className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm"
+                                       >
+                                         View
+                                       </button>
+                                       <button
+                                         onClick={() => handleEditPolice(officer)}
+                                         className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm"
+                                       >
+                                         Edit
+                                       </button>
+                                       <button
+                                         onClick={() => handleSuspendPolice(officer.hrms)}
+                                         className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1 rounded text-sm"
+                                       >
+                                         Suspend
+                                       </button>
+                                       <button
+                                         onClick={() => handleDeletePolice(officer.hrms)}
+                                         className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
+                                       >
+                                         Delete
+                                       </button>
+                                     </div>
+                                   </td>
+                                 </tr>
+                               ))}
+                           </tbody>
+                         </table>
+                       </div>
+                     ) : (
+                       <div className="p-6 text-center text-gray-500">
+                         No approved police officers found
+                       </div>
+                     )}
+                   </>
+                 )}
+               </div>
+             )}
+             {/* Users Tab */}
+             {activeTab === 'users' && (
+               <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                 <div className="p-4 bg-gray-50 border-b">
+                   <h2 className="font-semibold text-lg">Manage Users</h2>
+                 </div>
 
-                  {allUsers.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full">
-                        <thead className="bg-gray-100">
-                          <tr>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aadhar ID</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gender</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {console.log(allUsers)}
-                          {allUsers.map((user) => (
-                            <tr key={user.aid} className="hover:bg-gray-50">
-                              <td className="py-3 px-4">{user.aid}</td>
-                              <td className="py-3 px-4">{user.User_name}</td>
-                              <td className="py-3 px-4">{user.email}</td>
-                              <td className="py-3 px-4">{user.phone_no}</td>
-                              <td className="py-3 px-4">{user.gender}</td>
-                              <td className="py-3 px-4">
-                                <div className="flex space-x-2">
-                                  <button
-                                    onClick={() => handleViewUserDetails(user)}
-                                    className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm"
-                                  >
-                                    View Details
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteUser(user.aid)}
-                                    className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
-                                  >
-                                    Delete
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="p-6 text-center text-gray-500">
-                      No users found
-                    </div>
-                  )}
-                </div>
-              )}
+                 {allUsers.length > 0 ? (
+                   <div className="overflow-x-auto">
+                     <table className="min-w-full">
+                       <thead className="bg-gray-100">
+                         <tr>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aadhar ID</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gender</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                         </tr>
+                       </thead>
+                       <tbody className="divide-y divide-gray-200">
+                         {allUsers.map((user) => (
+                           <tr key={user.aid} className="hover:bg-gray-50">
+                             <td className="py-3 px-4">{user.aid}</td>
+                             <td className="py-3 px-4">{user.User_name}</td>
+                             <td className="py-3 px-4">{user.email}</td>
+                             <td className="py-3 px-4">{user.phone_no}</td>
+                             <td className="py-3 px-4">{user.gender}</td>
+                             <td className="py-3 px-4">
+                               <div className="flex space-x-2">
+                                 <button
+                                   onClick={() => handleViewUserDetails(user)}
+                                   className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm"
+                                 >
+                                   View Details
+                                 </button>
+                                 <button
+                                   onClick={() => handleDeleteUser(user.aid)}
+                                   className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
+                                 >
+                                   Delete
+                                 </button>
+                               </div>
+                             </td>
+                           </tr>
+                         ))}
+                       </tbody>
+                     </table>
+                   </div>
+                 ) : (
+                   <div className="p-6 text-center text-gray-500">
+                     No users found
+                   </div>
+                 )}
+               </div>
+             )}
 
-              {/* FIRs Tab */}
-              {activeTab === 'firs' && (
-                <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-                  <div className="p-4 bg-gray-50 border-b">
-                    <h2 className="font-semibold text-lg">All FIRs</h2>
-                  </div>
+             {activeTab === 'criminals' && (
+               <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                 <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                   <h2 className="font-semibold text-lg">Criminal Records Management</h2>
+                   <Link
+                     to="/criminals/add"
+                     className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded"
+                   >
+                     Add New Criminal
+                   </Link>
+                 </div>
+                 <CriminalList />
+               </div>
+             )}
 
-                  {allFIRs.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full">
-                        <thead className="bg-gray-100">
-                          <tr>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">FIR ID</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Complaint Date</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Incident Location</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station ID</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Officer ID</th>
-                            <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {allFIRs.map((fir) => (
-                            <tr key={fir.firId} className="hover:bg-gray-50">
-                              <td className="py-3 px-4">{fir.firId}</td>
-                              <td className="py-3 px-4">{new Date(fir.complainDate).toLocaleDateString()}</td>
-                              <td className="py-3 px-4">{fir.incidentLocation}</td>
-                              <td className="py-3 px-4">
-                                <span className={`px-2 py-1 rounded-full text-xs ${fir.close ? 'bg-green-100 text-green-800' :
-                                  fir.officerId ? 'bg-yellow-100 text-yellow-800' :
-                                    'bg-blue-100 text-blue-800'
-                                  }`}>
-                                  {fir.close ? 'Resolved' : fir.officerId ? 'In Progress' : 'Submitted'}
-                                </span>
-                              </td>
-                              <td className="py-3 px-4">{fir.stationId}</td>
-                              <td className="py-3 px-4">{fir.officerId || 'Not Assigned'}</td>
-                              <td className="py-3 px-4">
-                                <div className="flex space-x-2">
-                                  <button
-                                    onClick={() => handleViewFIRDetails(fir)}
-                                    className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm"
-                                  >
-                                    View Details
-                                  </button>
-                                  <button
-                                    onClick={() => handleReassignFIR(fir)}
-                                    className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm"
-                                  >
-                                    Reassign
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="p-6 text-center text-gray-500">
-                      No FIRs found
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
+             {/* FIRs Tab */}
+             {activeTab === 'firs' && (
+               <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                 <div className="p-4 bg-gray-50 border-b">
+                   <h2 className="font-semibold text-lg">All FIRs</h2>
+                 </div>
 
-      {/* Modals for different operations */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-lg overflow-auto max-h-[90vh] w-full max-w-xl">
-            <div className="p-6">
-              {/* Modal Header */}
-              <div className="flex justify-between items-center mb-6 border-b pb-3">
-                <h3 className="text-xl font-semibold">
-                  {modalType === 'updateStationIncharge' && 'Update Station Incharge'}
-                  {modalType === 'editStation' && 'Edit Station'}
-                  {modalType === 'editPolice' && 'Edit Police Officer'}
-                  {modalType === 'addStation' && 'Add New Station'}
-                  {modalType === 'addPolice' && 'Add New Police Officer'}
-                  {modalType === 'viewPolice' && 'Police Officer Details'}
-                  {modalType === 'viewStation' && 'Station Details'}
-                  {modalType === 'viewFIR' && 'FIR Details'}
-                  {modalType === 'viewUser' && 'User Details'}
-                  {modalType === 'reassignFIR' && 'Reassign FIR'}
-                </h3>
-                <button
-                  onClick={() => setIsModalOpen(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
+                 {allFIRs.length > 0 ? (
+                   <div className="overflow-x-auto">
+                     <table className="min-w-full">
+                       <thead className="bg-gray-100">
+                         <tr>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">FIR ID</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Complaint Date</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Incident Location</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Station ID</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Officer ID</th>
+                           <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                         </tr>
+                       </thead>
+                       <tbody className="divide-y divide-gray-200">
+                         {allFIRs.map((fir) => (
+                           <tr key={fir.firId} className="hover:bg-gray-50">
+                             <td className="py-3 px-4">{fir.firId}</td>
+                             <td className="py-3 px-4">{formatDate(fir.complainDate)}</td>
+                             <td className="py-3 px-4">{fir.incidentLocation}</td>
+                             <td className="py-3 px-4">
+                               <span className={`px-2 py-1 rounded-full text-xs ${getStatusDisplayClass(fir.status, 'fir')}`}>
+                                 {getStatusDisplayName(fir.status)}
+                               </span>
+                             </td>
+                             <td className="py-3 px-4">{fir.stationId}</td>
+                             <td className="py-3 px-4">{fir.officerId || 'Not Assigned'}</td>
+                             <td className="py-3 px-4">
+                               <div className="flex space-x-2">
+                                 <button
+                                   className="text-blue-600 hover:text-blue-800"
+                                   onClick={() => handleViewFIRDetails(fir)}
+                                 >
+                                   View
+                                 </button>
+                                 <button
+                                   className="text-blue-600 hover:text-blue-800"
+                                   onClick={() => handleReassignFIR(fir)}
+                                 >
+                                   Reassign
+                                 </button>
+                               </div>
+                             </td>
+                           </tr>
+                         ))}
+                       </tbody>
+                     </table>
+                   </div>
+                 ) : (
+                   <div className="p-6 text-center text-gray-500">
+                     No FIRs found
+                   </div>
+                 )}
+               </div>
+             )}
+           </>
+         )}
+       </div>
+     </div>
 
-              {/* Error Message */}
-              {error && (
-                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-                  {error}
-                </div>
-              )}
+     {/* Modals for different operations */}
+     {isModalOpen && (
+       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+         <div className="bg-white rounded-lg shadow-lg overflow-auto max-h-[90vh] w-full max-w-xl">
+           <div className="p-6">
+             {/* Modal Header */}
+             <div className="flex justify-between items-center mb-6 border-b pb-3">
+               <h3 className="text-xl font-semibold">
+                 {modalType === 'updateStationIncharge' && 'Update Station Incharge'}
+                 {modalType === 'editStation' && 'Edit Station'}
+                 {modalType === 'editPolice' && 'Edit Police Officer'}
+                 {modalType === 'addStation' && 'Add New Station'}
+                 {modalType === 'addPolice' && 'Add New Police Officer'}
+                 {modalType === 'viewPolice' && 'Police Officer Details'}
+                 {modalType === 'viewStation' && 'Station Details'}
+                 {modalType === 'viewFIR' && 'FIR Details'}
+                 {modalType === 'viewUser' && 'User Details'}
+                 {modalType === 'reassignFIR' && 'Reassign FIR'}
+               </h3>
+               <button
+                 onClick={() => setIsModalOpen(false)}
+                 className="text-gray-400 hover:text-gray-600"
+               >
+                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                 </svg>
+               </button>
+             </div>
 
-              {/* Update Station Incharge Form */}
-              {modalType === 'updateStationIncharge' && (
-                <form onSubmit={handleUpdateStationIncharge}>
-                  <div className="mb-4">
-                    <label htmlFor="stationName" className="block text-gray-700 text-sm font-medium mb-2">Station Name</label>
-                    <input
-                      type="text"
-                      id="stationName"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                      value={selectedItem?.stationName || ''}
-                      readOnly
-                    />
-                  </div>
+             {/* Error Message */}
+             {error && (
+               <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+                 {error}
+               </div>
+             )}
 
-                  <div className="mb-4">
-                    <label htmlFor="currentIncharge" className="block text-gray-700 text-sm font-medium mb-2">Current Incharge</label>
-                    <input
-                      type="text"
-                      id="currentIncharge"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                      value={selectedItem?.StationIncharge || 'Not assigned'}
-                      readOnly
-                    />
-                  </div>
+             {/* Update Station Incharge Form */}
+             {modalType === 'updateStationIncharge' && (
+               <form onSubmit={handleUpdateStationIncharge}>
+                 <div className="mb-4">
+                   <label htmlFor="stationName" className="block text-gray-700 text-sm font-medium mb-2">Station Name</label>
+                   <input
+                     type="text"
+                     id="stationName"
+                     className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                     value={selectedItem?.stationName || ''}
+                     readOnly
+                   />
+                 </div>
 
-                  <div className="mb-6">
-                    <label htmlFor="stationInchargeId" className="block text-gray-700 text-sm font-medium mb-2">Select New Incharge</label>
-                    <select
-                      id="stationInchargeId"
-                      name="stationInchargeId"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      value={formData.stationInchargeId || ''}
-                      onChange={handleInputChange}
-                      required
-                    >
-                      <option value="">Select an Officer</option>
-                      {allPolice
-                        .filter(officer => officer.approval && officer.stationId?.toString() === selectedItem?.stationSid?.toString())
-                        .map(officer => (
-                          <option key={officer.hrms} value={officer.hrms}>
-                            {officer.name} ({officer.position})
-                          </option>
-                        ))
-                      }
-                    </select>
-                  </div>
+                 <div className="mb-4">
+                   <label htmlFor="currentIncharge" className="block text-gray-700 text-sm font-medium mb-2">Current Incharge</label>
+                   <input
+                     type="text"
+                     id="currentIncharge"
+                     className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                     value={selectedItem?.StationIncharge || 'Not assigned'}
+                     readOnly
+                   />
+                 </div>
 
-                  <div className="flex justify-end space-x-3">
-                    <button
-                      type="button"
-                      onClick={() => setIsModalOpen(false)}
-                      className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
-                      disabled={isProcessing}
-                    >
-                      {isProcessing ? 'Updating...' : 'Update Incharge'}
-                    </button>
-                  </div>
-                </form>
-              )}
+                 <div className="mb-6">
+                   <label htmlFor="stationInchargeId" className="block text-gray-700 text-sm font-medium mb-2">Select New Incharge</label>
+                   <select
+                     id="stationInchargeId"
+                     name="stationInchargeId"
+                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                     value={formData.stationInchargeId || ''}
+                     onChange={handleInputChange}
+                     required
+                   >
+                     <option value="">Select an Officer</option>
+                     {allPolice
+                       .filter(officer => officer.approval && officer.stationId?.toString() === selectedItem?.stationSid?.toString())
+                       .map(officer => (
+                         <option key={officer.hrms} value={officer.hrms}>
+                          {officer.name} ({officer.position})
+                         </option>
+                       ))
+                     }
+                   </select>
+                 </div>
 
-              {/* View Modals */}
-              {(modalType === 'viewPolice' || modalType === 'viewStation' || modalType === 'viewFIR' || modalType === 'viewUser') && (
-                <div className="space-y-4">
-                  {/* Display details based on the type */}
-                  {modalType === 'viewPolice' && (
-                    <>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-gray-500 text-sm">HRMS ID</label>
-                          <p className="font-medium">{selectedItem?.hrms}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Name</label>
-                          <p className="font-medium">{selectedItem?.name}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Email</label>
-                          <p className="font-medium">{selectedItem?.email}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Phone</label>
-                          <p className="font-medium">{selectedItem?.phone_no}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Position</label>
-                          <p className="font-medium">{selectedItem?.position}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Station ID</label>
-                          <p className="font-medium">{selectedItem?.stationId}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Gender</label>
-                          <p className="font-medium">{selectedItem?.gender}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Status</label>
-                          <p className="font-medium">
-                            <span className={`px-2 py-1 rounded-full text-xs ${selectedItem?.approval ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                              {selectedItem?.approval ? 'Approved' : 'Pending'}
-                            </span>
-                          </p>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                  {modalType === 'viewStation' && (
-                    <>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-gray-500 text-sm">Station ID</label>
-                          <p className="font-medium">{selectedItem?.stationSid}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Station Name</label>
-                          <p className="font-medium">{selectedItem?.stationName}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Incharge</label>
-                          <p className="font-medium">
-                            {selectedItem?.StationInchargeId ?
-                              (() => {
-                                const officer = allPolice.find(p =>
-                                  Number(p.hrms) === Number(selectedItem.StationInchargeId)
-                                );
-                                return officer ? officer.name : `Unknown (ID: ${selectedItem.StationInchargeId})`;
-                              })() : 'Not assigned'}
-                          </p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Address</label>
-                          <p className="font-medium">{selectedItem?.address}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Pin Code</label>
-                          <p className="font-medium">{selectedItem?.pinCode}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Phone</label>
-                          <p className="font-medium">{selectedItem?.phoneNo}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Email</label>
-                          <p className="font-medium">{selectedItem?.sEmail}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Status</label>
-                          <p className="font-medium">
-                            <span className={`px-2 py-1 rounded-full text-xs ${selectedItem?.approval ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                              {selectedItem?.approval ? 'Approved' : 'Pending'}
-                            </span>
-                          </p>
-                        </div>
-                      </div>
-                    </>
-                  )}
+                 <div className="flex justify-end space-x-3">
+                   <button
+                     type="button"
+                     onClick={() => setIsModalOpen(false)}
+                     className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                   >
+                     Cancel
+                   </button>
+                   <button
+                     type="submit"
+                     className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+                     disabled={isProcessing}
+                   >
+                     {isProcessing ? 'Updating...' : 'Update Incharge'}
+                   </button>
+                 </div>
+               </form>
+             )}
 
-                  {modalType === 'viewFIR' && (
-                    <>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-gray-500 text-sm">FIR ID</label>
-                          <p className="font-medium">{selectedItem?.firId}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Complaint Date</label>
-                          <p className="font-medium">{new Date(selectedItem?.complainDate).toLocaleDateString()}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Incident Location</label>
-                          <p className="font-medium">{selectedItem?.incidentLocation}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Incident Date</label>
-                          <p className="font-medium">{new Date(selectedItem?.incidentDate).toLocaleDateString()}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Status</label>
-                          <p className="font-medium">
-                            <span className={`px-2 py-1 rounded-full text-xs ${selectedItem?.close ? 'bg-green-100 text-green-800' :
-                              selectedItem?.officerId ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}`}>
-                              {selectedItem?.close ? 'Resolved' : selectedItem?.officerId ? 'In Progress' : 'Submitted'}
-                            </span>
-                          </p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Station ID</label>
-                          <p className="font-medium">{selectedItem?.stationId}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Officer ID</label>
-                          <p className="font-medium">{selectedItem?.officerId || 'Not Assigned'}</p>
-                        </div>
-                      </div>
-                      <div className="mt-4">
-                        <label className="block text-gray-500 text-sm">Complaint Description</label>
-                        <p className="mt-1">{selectedItem?.complain}</p>
-                      </div>
-                    </>
-                  )}
+             {/* View Modals */}
+             {(modalType === 'viewPolice' || modalType === 'viewStation' || modalType === 'viewFIR' || modalType === 'viewUser') && (
+               <div className="space-y-4">
+                 {/* Display details based on the type */}
+                 {modalType === 'viewPolice' && (
+                   <>
+                     <div className="grid grid-cols-2 gap-4">
+                       <div>
+                         <label className="block text-gray-500 text-sm">HRMS ID</label>
+                         <p className="font-medium">{selectedItem?.hrms}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Name</label>
+                         <p className="font-medium">{selectedItem?.name}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Email</label>
+                         <p className="font-medium">{selectedItem?.email}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Phone</label>
+                         <p className="font-medium">{selectedItem?.phone_no}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Position</label>
+                         <p className="font-medium">{selectedItem?.position}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Station ID</label>
+                         <p className="font-medium">{selectedItem?.stationId}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Gender</label>
+                         <p className="font-medium">{selectedItem?.gender}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Status</label>
+                         <p className="font-medium">
+                           <span className={`px-2 py-1 rounded-full text-xs ${selectedItem?.approval ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                             {selectedItem?.approval ? 'Approved' : 'Pending'}
+                           </span>
+                         </p>
+                       </div>
+                     </div>
+                   </>
+                 )}
+                 {modalType === 'viewStation' && (
+                   <>
+                     <div className="grid grid-cols-2 gap-4">
+                       <div>
+                         <label className="block text-gray-500 text-sm">Station ID</label>
+                         <p className="font-medium">{selectedItem?.stationSid}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Station Name</label>
+                         <p className="font-medium">{selectedItem?.stationName}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Incharge</label>
+                         <p className="font-medium">
+                           {selectedItem?.StationInchargeId ?
+                             (() => {
+                               const officer = allPolice.find(p =>
+                                 Number(p.hrms) === Number(selectedItem.StationInchargeId)
+                               );
+                               return officer ? officer.name : `Unknown (ID: ${selectedItem.StationInchargeId})`;
+                             })() : 'Not assigned'}
+                         </p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Address</label>
+                         <p className="font-medium">{selectedItem?.address}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Pin Code</label>
+                         <p className="font-medium">{selectedItem?.pinCode}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Phone</label>
+                         <p className="font-medium">{selectedItem?.phoneNo}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Email</label>
+                         <p className="font-medium">{selectedItem?.sEmail}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Status</label>
+                         <p className="font-medium">
+                           <span className={`px-2 py-1 rounded-full text-xs ${selectedItem?.approval ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                             {selectedItem?.approval ? 'Approved' : 'Pending'}
+                           </span>
+                         </p>
+                       </div>
+                     </div>
+                   </>
+                 )}
 
-                  {modalType === 'viewUser' && (
-                    <>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-gray-500 text-sm">Aadhar ID</label>
-                          <p className="font-medium">{selectedItem?.aid}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Name</label>
-                          <p className="font-medium">{selectedItem?.User_name}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Email</label>
-                          <p className="font-medium">{selectedItem?.email}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Phone</label>
-                          <p className="font-medium">{selectedItem?.phone_no}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Gender</label>
-                          <p className="font-medium">{selectedItem?.gender}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Date of Birth</label>
-                          <p className="font-medium">{selectedItem?.dob}</p>
-                        </div>
-                        <div>
-                          <label className="block text-gray-500 text-sm">Address</label>
-                          <p className="font-medium">{selectedItem?.address}</p>
-                        </div>
-                      </div>
-                    </>
-                  )}
+                 {modalType === 'viewFIR' && (
+                   <>
+                     <div className="grid grid-cols-2 gap-4">
+                       <div>
+                         <label className="block text-gray-500 text-sm">FIR ID</label>
+                         <p className="font-medium">{selectedItem?.firId}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Complaint Date</label>
+                         <p className="font-medium">{formatDate(selectedItem?.complainDate)}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Incident Location</label>
+                         <p className="font-medium">{selectedItem?.incidentLocation}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Incident Date</label>
+                         <p className="font-medium">{formatDate(selectedItem?.incidentDate)}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Status</label>
+                         <p className="font-medium">
+                           <span className={`px-2 py-1 rounded-full text-xs ${getStatusDisplayClass(selectedItem?.status, 'fir')}`}>
+                             {getStatusDisplayName(selectedItem?.status)}
+                           </span>
+                         </p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Station ID</label>
+                         <p className="font-medium">{selectedItem?.stationId}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Officer ID</label>
+                         <p className="font-medium">{selectedItem?.officerId || 'Not Assigned'}</p>
+                       </div>
+                     </div>
+                     <div className="mt-4">
+                       <label className="block text-gray-500 text-sm">Complaint Description</label>
+                       <p className="mt-1 p-3 bg-gray-50 rounded">{selectedItem?.description}</p>
+                     </div>
+                     <div className="mt-4 flex justify-between">
+                       <button
+                         onClick={() => {
+                           setIsModalOpen(false);
+                           openLinkCriminalModal(selectedItem.firId);
+                         }}
+                         className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+                       >
+                         Link to Criminal Record
+                       </button>
 
-                  {/* Add buttons at the bottom */}
-                  <div className="mt-6 flex justify-end">
-                    <button
-                      onClick={() => setIsModalOpen(false)}
-                      className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              )}
+                       <button
+                         onClick={() => setIsModalOpen(false)}
+                         className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                       >
+                         Close
+                       </button>
+                     </div>
+                   </>
+                 )}
 
-              {/* Add and Edit Forms */}
-              {(modalType === 'editStation' || modalType === 'addStation' || modalType === 'editPolice' || modalType === 'addPolice' || modalType === 'reassignFIR') && (
-                <form onSubmit={handleSubmitForm}>
-                  {/* Form fields based on type */}
+                 {modalType === 'viewUser' && (
+                   <>
+                     <div className="grid grid-cols-2 gap-4">
+                       <div>
+                         <label className="block text-gray-500 text-sm">Aadhar ID</label>
+                         <p className="font-medium">{selectedItem?.aid}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Name</label>
+                         <p className="font-medium">{selectedItem?.User_name}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Email</label>
+                         <p className="font-medium">{selectedItem?.email}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Phone</label>
+                         <p className="font-medium">{selectedItem?.phone_no}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Gender</label>
+                         <p className="font-medium">{selectedItem?.gender}</p>
+                       </div>
+                       <div>
+                         <label className="block text-gray-500 text-sm">Date of Birth</label>
+                         <p className="font-medium">{formatDate(selectedItem?.dob)}</p>
+                       </div>
+                     </div>
+                   </>
+                 )}
 
-                  {/* Station Form Fields */}
-                  {(modalType === 'editStation' || modalType === 'addStation') && (
-                    <>
-                      {/* Add station form fields here */}
-                      <div className="mb-4">
-                        <label htmlFor="stationName" className="block text-gray-700 text-sm font-medium mb-2">Station Name</label>
-                        <input
-                          type="text"
-                          id="stationName"
-                          name="stationName"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          value={formData.stationName || ''}
-                          onChange={handleInputChange}
-                          required
-                        />
-                      </div>
+                 {/* Add buttons at the bottom */}
+                 {modalType !== 'viewFIR' && (
+                   <div className="mt-6 flex justify-end">
+                     <button
+                       onClick={() => setIsModalOpen(false)}
+                       className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                     >
+                       Close
+                     </button>
+                   </div>
+                 )}
+               </div>
+             )}
 
-                      <div className="mb-4">
-                        <label htmlFor="address" className="block text-gray-700 text-sm font-medium mb-2">Address</label>
-                        <input
-                          type="text"
-                          id="address"
-                          name="address"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          value={formData.address || ''}
-                          onChange={handleInputChange}
-                          required
-                        />
-                      </div>
+             {/* Add and Edit Forms */}
+             {(modalType === 'editStation' || modalType === 'addStation' || modalType === 'editPolice' || modalType === 'addPolice' || modalType === 'reassignFIR') && (
+               <form onSubmit={handleSubmitForm}>
+                 {/* Form fields based on type */}
 
-                      <div className="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                          <label htmlFor="pinCode" className="block text-gray-700 text-sm font-medium mb-2">Pin Code</label>
-                          <input
-                            type="text"
-                            id="pinCode"
-                            name="pinCode"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                            value={formData.pinCode || ''}
-                            onChange={handleInputChange}
-                            required
-                          />
-                        </div>
-                        <div>
-                          <label htmlFor="phoneNo" className="block text-gray-700 text-sm font-medium mb-2">Phone Number</label>
-                          <input
-                            type="text"
-                            id="phoneNo"
-                            name="phoneNo"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                            value={formData.phoneNo || ''}
-                            onChange={handleInputChange}
-                            required
-                          />
-                        </div>
-                      </div>
+                 {/* Station Form Fields */}
+                 {(modalType === 'editStation' || modalType === 'addStation') && (
+                   <>
+                     {/* Add station form fields here */}
+                     <div className="mb-4">
+                       <label htmlFor="stationName" className="block text-gray-700 text-sm font-medium mb-2">Station Name</label>
+                       <input
+                         type="text"
+                         id="stationName"
+                         name="stationName"
+                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                         value={formData.stationName || ''}
+                         onChange={handleInputChange}
+                         required
+                       />
+                     </div>
 
-                      <div className="mb-4">
-                        <label htmlFor="sEmail" className="block text-gray-700 text-sm font-medium mb-2">Email</label>
-                        <input
-                          type="email"
-                          id="sEmail"
-                          name="sEmail"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          value={formData.sEmail || ''}
-                          onChange={handleInputChange}
-                          required
-                        />
-                      </div>
+                     <div className="mb-4">
+                       <label htmlFor="address" className="block text-gray-700 text-sm font-medium mb-2">Address</label>
+                       <input
+                         type="text"
+                         id="address"
+                         name="address"
+                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                         value={formData.address || ''}
+                         onChange={handleInputChange}
+                         required
+                       />
+                     </div>
 
-                      {modalType === 'addStation' && (
-                        <div className="mb-4">
-                          <label htmlFor="pass" className="block text-gray-700 text-sm font-medium mb-2">Password</label>
-                          <input
-                            type="password"
-                            id="pass"
-                            name="pass"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                            value={formData.pass || ''}
-                            onChange={handleInputChange}
-                            required
-                          />
-                        </div>
-                      )}
-                    </>
-                  )}
+                     <div className="grid grid-cols-2 gap-4 mb-4">
+                       <div>
+                         <label htmlFor="pinCode" className="block text-gray-700 text-sm font-medium mb-2">Pin Code</label>
+                         <input
+                           type="text"
+                           id="pinCode"
+                           name="pinCode"
+                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                           value={formData.pinCode || ''}
+                           onChange={handleInputChange}
+                           required
+                         />
+                       </div>
+                       <div>
+                         <label htmlFor="phoneNo" className="block text-gray-700 text-sm font-medium mb-2">Phone Number</label>
+                         <input
+                           type="text"
+                           id="phoneNo"
+                           name="phoneNo"
+                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                           value={formData.phoneNo || ''}
+                           onChange={handleInputChange}
+                           required
+                         />
+                       </div>
+                     </div>
 
-                  {/* Police Form Fields */}
-                  {(modalType === 'editPolice' || modalType === 'addPolice') && (
-                    <>
-                      {modalType === 'addPolice' && (
-                        <div className="mb-4">
-                          <label htmlFor="hrms" className="block text-gray-700 text-sm font-medium mb-2">HRMS ID</label>
-                          <input
-                            type="text"
-                            id="hrms"
-                            name="hrms"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                            value={formData.hrms || ''}
-                            onChange={handleInputChange}
-                            required
-                          />
-                        </div>
-                      )}
+                     <div className="mb-4">
+                       <label htmlFor="sEmail" className="block text-gray-700 text-sm font-medium mb-2">Email</label>
+                       <input
+                         type="email"
+                         id="sEmail"
+                         name="sEmail"
+                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                         value={formData.sEmail || ''}
+                         onChange={handleInputChange}
+                         required
+                       />
+                     </div>
 
-                      <div className="mb-4">
-                        <label htmlFor="name" className="block text-gray-700 text-sm font-medium mb-2">Full Name</label>
-                        <input
-                          type="text"
-                          id="name"
-                          name="name"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          value={formData.name || ''}
-                          onChange={handleInputChange}
-                          required
-                        />
-                      </div>
+                     {modalType === 'addStation' && (
+                       <div className="mb-4">
+                         <label htmlFor="pass" className="block text-gray-700 text-sm font-medium mb-2">Password</label>
+                         <input
+                           type="password"
+                           id="pass"
+                           name="pass"
+                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                           value={formData.pass || ''}
+                           onChange={handleInputChange}
+                           required
+                           minLength="6"
+                         />
+                         <p className="mt-1 text-sm text-gray-500">
+                           This password will be used for station login.
+                         </p>
+                       </div>
+                     )}
+                   </>
+                 )}
 
-                      <div className="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                          <label htmlFor="email" className="block text-gray-700 text-sm font-medium mb-2">Email</label>
-                          <input
-                            type="email"
-                            id="email"
-                            name="email"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                            value={formData.email || ''}
-                            onChange={handleInputChange}
-                            required
-                          />
-                        </div>
-                        <div>
-                          <label htmlFor="phone_no" className="block text-gray-700 text-sm font-medium mb-2">Phone Number</label>
-                          <input
-                            type="text"
-                            id="phone_no"
-                            name="phone_no"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                            value={formData.phone_no || ''}
-                            onChange={handleInputChange}
-                            required
-                          />
-                        </div>
-                      </div>
+                 {/* Police Form Fields */}
+                 {(modalType === 'editPolice' || modalType === 'addPolice') && (
+                   <>
+                     {modalType === 'addPolice' && (
+                       <div className="mb-4">
+                         <label htmlFor="hrms" className="block text-gray-700 text-sm font-medium mb-2">HRMS ID</label>
+                         <input
+                           type="text"
+                           id="hrms"
+                           name="hrms"
+                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                           value={formData.hrms || ''}
+                           onChange={handleInputChange}
+                           required
+                         />
+                       </div>
+                     )}
 
-                      <div className="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                          <label htmlFor="position" className="block text-gray-700 text-sm font-medium mb-2">Position</label>
-                          <select
-                            id="position"
-                            name="position"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                            value={formData.position || ''}
-                            onChange={handleInputChange}
-                            required
-                          >
-                            <option value="">Select Position</option>
-                            <option value="Constable">Constable</option>
-                            <option value="Head Constable">Head Constable</option>
-                            <option value="Assistant Sub-Inspector">Assistant Sub-Inspector</option>
-                            <option value="Sub-Inspector">Sub-Inspector</option>
-                            <option value="Inspector">Inspector</option>
-                            <option value="Deputy Superintendent">Deputy Superintendent</option>
-                            <option value="Superintendent">Superintendent</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label htmlFor="gender" className="block text-gray-700 text-sm font-medium mb-2">Gender</label>
-                          <select
-                            id="gender"
-                            name="gender"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                            value={formData.gender || ''}
-                            onChange={handleInputChange}
-                            required
-                          >
-                            <option value="">Select Gender</option>
-                            <option value="Male">Male</option>
-                            <option value="Female">Female</option>
-                            <option value="Other">Other</option>
-                          </select>
-                        </div>
-                      </div>
+                     <div className="mb-4">
+                       <label htmlFor="name" className="block text-gray-700 text-sm font-medium mb-2">Full Name</label>
+                       <input
+                         type="text"
+                         id="name"
+                         name="name"
+                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                         value={formData.name || ''}
+                         onChange={handleInputChange}
+                         required
+                       />
+                     </div>
 
-                      <div className="mb-4">
-                        <label htmlFor="stationId" className="block text-gray-700 text-sm font-medium mb-2">Station</label>
-                        <select
-                          id="stationId"
-                          name="stationId"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          value={formData.stationId || ''}
-                          onChange={handleInputChange}
-                          required
-                        >
-                          <option value="">Select Station</option>
-                          {allStations
-                            .filter(station => station.approval) // Only show approved stations
-                            .map(station => (
-                              <option key={station.stationSid} value={station.stationSid}>
-                                {station.stationName}
-                              </option>
-                            ))
-                          }
-                        </select>
-                      </div>
+                     <div className="grid grid-cols-2 gap-4 mb-4">
+                       <div>
+                         <label htmlFor="email" className="block text-gray-700 text-sm font-medium mb-2">Email</label>
+                         <input
+                           type="email"
+                           id="email"
+                           name="email"
+                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                           value={formData.email || ''}
+                           onChange={handleInputChange}
+                           required
+                         />
+                       </div>
+                       <div>
+                         <label htmlFor="phone_no" className="block text-gray-700 text-sm font-medium mb-2">Phone Number</label>
+                         <input
+                           type="text"
+                           id="phone_no"
+                           name="phone_no"
+                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                           value={formData.phone_no || ''}
+                           onChange={handleInputChange}
+                           required
+                         />
+                       </div>
+                     </div>
 
-                      {modalType === 'addPolice' && (
-                        <div className="mb-4">
-                          <label htmlFor="password" className="block text-gray-700 text-sm font-medium mb-2">Password</label>
-                          <input
-                            type="password"
-                            id="password"
-                            name="password"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                            value={formData.password || ''}
-                            onChange={handleInputChange}
-                            required
-                          />
-                        </div>
-                      )}
-                    </>
-                  )}
+                     <div className="grid grid-cols-2 gap-4 mb-4">
+                       <div>
+                         <label htmlFor="position" className="block text-gray-700 text-sm font-medium mb-2">Position</label>
+                         <select
+                           id="position"
+                           name="position"
+                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                           value={formData.position || ''}
+                           onChange={handleInputChange}
+                           required
+                         >
+                           <option value="">Select Position</option>
+                           <option value="Constable">Constable</option>
+                           <option value="Head Constable">Head Constable</option>
+                           <option value="Assistant Sub-Inspector">Assistant Sub-Inspector</option>
+                           <option value="Sub-Inspector">Sub-Inspector</option>
+                           <option value="Inspector">Inspector</option>
+                           <option value="Deputy Superintendent">Deputy Superintendent</option>
+                           <option value="Superintendent">Superintendent</option>
+                         </select>
+                       </div>
+                       <div>
+                         <label htmlFor="gender" className="block text-gray-700 text-sm font-medium mb-2">Gender</label>
+                         <select
+                           id="gender"
+                           name="gender"
+                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                           value={formData.gender || ''}
+                           onChange={handleInputChange}
+                           required
+                         >
+                           <option value="">Select Gender</option>
+                           <option value="Male">Male</option>
+                           <option value="Female">Female</option>
+                           <option value="Other">Other</option>
+                         </select>
+                       </div>
+                     </div>
 
-                  {/* Reassign FIR Form - Modified version */}
-                  {modalType === 'reassignFIR' && (
-                    <>
-                      <div className="mb-4">
-                        <label htmlFor="firId" className="block text-gray-700 text-sm font-medium mb-2">FIR ID</label>
-                        <input
-                          type="text"
-                          id="firId"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                          value={selectedItem?.firId || ''}
-                          readOnly
-                        />
-                      </div>
+                     <div className="mb-4">
+                       <label htmlFor="stationId" className="block text-gray-700 text-sm font-medium mb-2">Station</label>
+                       <select
+                         id="stationId"
+                         name="stationId"
+                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                         value={formData.stationId || ''}
+                         onChange={handleInputChange}
+                         required
+                       >
+                         <option value="">Select Station</option>
+                         {allStations
+                           .filter(station => station.approval) // Only show approved stations
+                           .map(station => (
+                             <option key={station.stationSid} value={station.stationSid}>
+                               {station.stationName}
+                             </option>
+                           ))
+                         }
+                       </select>
+                     </div>
 
-                      <div className="mb-4">
-                        <label htmlFor="currentOfficer" className="block text-gray-700 text-sm font-medium mb-2">Current Officer</label>
-                        <input
-                          type="text"
-                          id="currentOfficer"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                          value={selectedItem?.officerId ? `Officer ID: ${selectedItem.officerId}` : 'Not assigned'}
-                          readOnly
-                        />
-                      </div>
+                     {modalType === 'addPolice' && (
+                       <div className="mb-4">
+                         <label htmlFor="password" className="block text-gray-700 text-sm font-medium mb-2">Password</label>
+                         <input
+                           type="password"
+                           id="password"
+                           name="password"
+                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                           value={formData.password || ''}
+                           onChange={handleInputChange}
+                           required
+                           minLength="6"
+                         />
+                       </div>
+                     )}
+                   </>
+                 )}
+                 {/* LinkCriminalModal */}
+                 {isLinkCriminalModalOpen && (
+                   <LinkCriminalModal
+                     isOpen={isLinkCriminalModalOpen}
+                     onClose={() => setIsLinkCriminalModalOpen(false)}
+                     firId={linkingFirId}
+                     refreshData={refreshData}
+                   />
+                 )}
 
-                      <div className="mb-4">
-                        <label className="block text-gray-700 text-sm font-medium mb-2">FIR Station ID</label>
-                        <input
-                          type="text"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                          value={selectedItem?.stationId || 'Not assigned'}
-                          readOnly
-                        />
-                      </div>
+                 {/* Reassign FIR Form - Modified version */}
+                 {modalType === 'reassignFIR' && (
+                   <>
+                     <div className="mb-4">
+                       <label htmlFor="firId" className="block text-gray-700 text-sm font-medium mb-2">FIR ID</label>
+                       <input
+                         type="text"
+                         id="firId"
+                         className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                         value={selectedItem?.firId || ''}
+                         readOnly
+                       />
+                     </div>
 
-                      <div className="mb-6">
-                        <label htmlFor="officerId" className="block text-gray-700 text-sm font-medium mb-2">Select New Officer</label>
-                        <select
-                          id="officerId"
-                          name="officerId"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          value={formData.officerId || ''}
-                          onChange={handleInputChange}
-                          required
-                        >
-                          <option value="">Select an Officer</option>
-                          {allPolice
-                            .filter(officer =>
-                              officer.approval &&
-                              officer.stationId?.toString() === selectedItem?.stationId?.toString()
-                            )
-                            .map(officer => (
-                              <option key={officer.hrms} value={officer.hrms}>
-                                {officer.name} ({officer.position})
-                              </option>
-                            ))
-                          }
-                        </select>
-                        {allPolice.filter(officer =>
-                          officer.approval &&
-                          officer.stationId?.toString() === selectedItem?.stationId?.toString()
-                        ).length === 0 && (
-                            <p className="mt-2 text-sm text-red-600">
-                              No approved officers available for this station. Please approve officers for this station first.
-                            </p>
-                          )}
-                      </div>
-                    </>
-                  )}
-                  <div className="flex justify-end space-x-3 mt-6">
-                    <button
-                      type="button"
-                      onClick={() => setIsModalOpen(false)}
-                      className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
-                      disabled={isProcessing}
-                    >
-                      {isProcessing ? 'Processing...' :
-                        modalType.startsWith('add') ? 'Add' :
-                          modalType.startsWith('edit') ? 'Update' :
-                            'Submit'}
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+                     <div className="mb-4">
+                       <label htmlFor="currentOfficer" className="block text-gray-700 text-sm font-medium mb-2">Current Officer</label>
+                       <input
+                         type="text"
+                         id="currentOfficer"
+                         className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                         value={selectedItem?.officerId ? `Officer ID: ${selectedItem.officerId}` : 'Not assigned'}
+                         readOnly
+                       />
+                     </div>
 
-      <Footer />
-    </div>
-  );
+                     <div className="mb-4">
+                       <label className="block text-gray-700 text-sm font-medium mb-2">FIR Station ID</label>
+                       <input
+                         type="text"
+                         className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                         value={selectedItem?.stationId || 'Not assigned'}
+                         readOnly
+                       />
+                     </div>
+
+                     <div className="mb-6">
+                       <label htmlFor="officerId" className="block text-gray-700 text-sm font-medium mb-2">Select New Officer</label>
+                       <select
+                         id="officerId"
+                         name="officerId"
+                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                         value={formData.officerId || ''}
+                         onChange={handleInputChange}
+                         required
+                       >
+                         <option value="">Select an Officer</option>
+                         {allPolice
+                           .filter(officer =>
+                             officer.approval &&
+                             officer.stationId?.toString() === selectedItem?.stationId?.toString()
+                           )
+                           .map(officer => (
+                             <option key={officer.hrms} value={officer.hrms}>
+                               {officer.name} ({officer.position})
+                             </option>
+                           ))
+                         }
+                       </select>
+                       {allPolice.filter(officer =>
+                         officer.approval &&
+                         officer.stationId?.toString() === selectedItem?.stationId?.toString()
+                       ).length === 0 && (
+                           <p className="mt-2 text-sm text-red-600">
+                             No approved officers available for this station. Please approve officers for this station first.
+                           </p>
+                         )}
+                     </div>
+                   </>
+                 )}
+                 <div className="flex justify-end space-x-3 mt-6">
+                   <button
+                     type="button"
+                     onClick={() => setIsModalOpen(false)}
+                     className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                   >
+                     Cancel
+                   </button>
+                   <button
+                     type="submit"
+                     className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+                     disabled={isProcessing}
+                   >
+                     {isProcessing ? 'Processing...' :
+                       modalType.startsWith('add') ? 'Add' :
+                         modalType.startsWith('edit') ? 'Update' :
+                           'Submit'}
+                   </button>
+                 </div>
+               </form>
+             )}
+           </div>
+         </div>
+       </div>
+     )}
+
+     <Footer />
+   </div>
+ );
 };
 
 export default AdminPortal;

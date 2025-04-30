@@ -1,3 +1,4 @@
+// src/Portals/Station/StationLogin.js
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../../Components/Navbar';
@@ -7,7 +8,7 @@ import { stationAPI } from '../../Services/api';
 const StationLogin = () => {
   const [credentials, setCredentials] = useState({
     stationSid: '', // Changed from stationCode to stationSid to match backend
-    pass: ''        // Changed from password to pass to match backend
+    password: ''
   });
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -24,34 +25,47 @@ const StationLogin = () => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
-
+  
     try {
-      // Get station by stationSid
-      const response = await stationAPI.getStationById(credentials.stationSid);
+      // Check if stationSid is numeric before sending to backend
+      if (!/^\d+$/.test(credentials.stationSid)) {
+        setError('Station ID must be numeric');
+        setIsLoading(false);
+        return;
+      }
+  
+      // Call the actual API for login
+      const response = await stationAPI.login({
+        stationSid: credentials.stationSid,
+        pass: credentials.password // 'pass' is the password field name in the backend
+      });
       
-      if (response.data) {
-        // Check if station is approved
-        if (!response.data.approval) {
-          setError('Your station is pending approval. Please contact admin.');
-          setIsLoading(false);
-          return;
-        }
-        
-        // Check if password matches
-        if (response.data.pass === credentials.pass) {
-          // Store station data in localStorage
-          localStorage.setItem('stationToken', 'station-token');
-          localStorage.setItem('stationData', JSON.stringify(response.data));
-          navigate('/station');
-        } else {
-          setError('Invalid password. Please try again.');
-        }
+      const stationData = response.data || response;
+      
+      if (stationData) {
+        // Store station data and token in localStorage
+        localStorage.setItem('stationToken', 'station-token');
+        localStorage.setItem('stationData', JSON.stringify(stationData));
+        navigate('/station');
       } else {
-        setError('Station not found. Please check your Station ID.');
+        setError('Invalid credentials. Please try again.');
       }
     } catch (err) {
       console.error('Login error:', err);
-      setError('Login failed. Please check your credentials and try again.');
+      
+      if (err.response) {
+        if (err.response.status === 401) {
+          setError('Invalid credentials or station not approved.');
+        } else if (err.response.status === 404) {
+          setError('Station not found. Please check your Station ID.');
+        } else if (err.response.status === 403) {
+          setError('Station is not approved yet. Please contact admin.');
+        } else {
+          setError('Login failed. Please check your credentials and try again.');
+        }
+      } else {
+        setError('Unable to connect to server. Please try again later.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -61,7 +75,7 @@ const StationLogin = () => {
     <div className="min-h-screen flex flex-col">
       <Navbar />
       <div className="flex-grow pt-20 flex items-center justify-center bg-gray-50">
-        <div className="max-w-md w-full mx-4 bg-white rounded-lg shadow-lg overflow-hidden">
+        <div className="max-w-md w-full mx-4 bg-white rounded-lg shadow-lg overflow-hidden" >
           <div className="bg-blue-700 p-6 text-white text-center">
             <div className="inline-block bg-blue-800 rounded-full p-3 mb-2">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -87,22 +101,27 @@ const StationLogin = () => {
                   id="stationSid"
                   name="stationSid"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter station ID"
+                  placeholder="Enter numeric station ID"
                   value={credentials.stationSid}
                   onChange={handleChange}
+                  pattern="[0-9]+"
+                  title="Station ID must be numeric"
                   required
                 />
+                <p className="mt-1 text-sm text-gray-500">
+                  Enter your numeric station ID (no letters or special characters)
+                </p>
               </div>
               
               <div className="mb-6">
-                <label htmlFor="pass" className="block text-gray-700 text-sm font-medium mb-2">Password</label>
+                <label htmlFor="password" className="block text-gray-700 text-sm font-medium mb-2">Password</label>
                 <input
                   type="password"
-                  id="pass"
-                  name="pass"
+                  id="password"
+                  name="password"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Enter your password"
-                  value={credentials.pass}
+                  value={credentials.password}
                   onChange={handleChange}
                   required
                 />

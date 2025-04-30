@@ -24,18 +24,39 @@ const PoliceLogin = () => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
-
+  
     try {
+      // Validate hrms is numeric
+      if (!credentials.hrms || isNaN(credentials.hrms)) {
+        setError('Please enter a valid HRMS number');
+        setIsLoading(false);
+        return;
+      }
+  
       const response = await policeAPI.login(credentials);
-      if (response.data) {
-        // Store officer data in localStorage
+      const policeData = response.data || response;
+      
+      if (policeData) {
         localStorage.setItem('policeToken', 'police-mock-token');
-        localStorage.setItem('policeData', JSON.stringify(response.data));
+        localStorage.setItem('policeData', JSON.stringify(policeData));
         navigate('/police');
+      } else {
+        setError('Invalid credentials or account not approved.');
       }
     } catch (err) {
-      setError('Invalid credentials. Please try again.');
       console.error('Login error:', err);
+      
+      if (err.response) {
+        if (err.response.status === 401) {
+          setError('Invalid credentials or your account has not been approved.');
+        } else if (err.response.status === 404) {
+          setError('Officer not found. Please check your HRMS number.');
+        } else {
+          setError('Login failed. Please try again.');
+        }
+      } else {
+        setError('Unable to connect to server. Please try again later.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -55,14 +76,14 @@ const PoliceLogin = () => {
             <h2 className="text-2xl font-bold">Police Officer Login</h2>
             <p className="mt-2">Secure access for law enforcement personnel</p>
           </div>
-          
+
           <div className="p-6">
             {error && (
               <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
                 {error}
               </div>
             )}
-            
+
             <form onSubmit={handleSubmit}>
               <div className="mb-4">
                 <label htmlFor="hrms" className="block text-gray-700 text-sm font-medium mb-2">HRMS Number</label>
@@ -77,7 +98,7 @@ const PoliceLogin = () => {
                   required
                 />
               </div>
-              
+
               <div className="mb-6">
                 <label htmlFor="password" className="block text-gray-700 text-sm font-medium mb-2">Password</label>
                 <input
@@ -94,7 +115,7 @@ const PoliceLogin = () => {
                   <a href="#" className="text-blue-600 hover:text-blue-800">Forgot password?</a>
                 </p>
               </div>
-              
+
               <button
                 type="submit"
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition duration-300"
@@ -111,7 +132,7 @@ const PoliceLogin = () => {
                 ) : 'Login'}
               </button>
             </form>
-            
+
             <div className="mt-6 text-center text-sm text-gray-600">
               For technical assistance, contact your station administrator
             </div>

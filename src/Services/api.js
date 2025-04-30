@@ -1,9 +1,11 @@
-import axios from 'axios';
+// src/Services/api.js
 
-// Base URL for API calls
-const API_BASE_URL = 'http://localhost:8090';
+import axios from "axios";
 
-// Create axios instance
+// Base API URL - from environment variable or fallback
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8090';
+
+// Create a standardized axios instance
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -11,180 +13,147 @@ const apiClient = axios.create({
   },
 });
 
-// User related API calls
+// Add response interceptor for consistent error handling
+apiClient.interceptors.response.use(
+  response => response,
+  error => {
+    console.error('API Error:', error.response || error);
+    return Promise.reject(error);
+  }
+);
+
+// Utility for handling BigInteger fields
+const prepareBigIntegerFields = (data, fields) => {
+  const prepared = {...data};
+  
+  fields.forEach(field => {
+    if (prepared[field] !== undefined && prepared[field] !== null) {
+      prepared[field] = prepared[field].toString();
+    }
+  });
+  
+  return prepared;
+};
+
 export const userAPI = {
   register: (userData) => {
-    const formattedData = {
-      ...userData,
-      aid: userData.aid
-    };
+    const formattedData = prepareBigIntegerFields(userData, ['aid', 'phone_no']);
     return apiClient.post('/user/add', formattedData);
   },
-  getAllUsers: () => {
-    return apiClient.get('/user/alluser');
-  },
-  getUserById: (id) => {
-    return apiClient.get(`/user/user/${id}`);
-  },
-  login: (credentials) => {
-    return apiClient.get(`/user/user/${credentials.aid}`)
-      .then(response => {
-        if (response.data && response.data.password === credentials.password) {
-          return { data: response.data };
-        } else {
-          throw new Error("Invalid credentials");
-        }
-      });
-  },
-  deleteUser: (id) => {
-    return apiClient.delete(`/user/delete/${id}`);
-  }
+  getAllUsers: () => apiClient.get('/user/alluser'),
+  getUserById: (id) => apiClient.get(`/user/user/${id}`),
+  deleteUser: (id) => apiClient.delete(`/user/delete/${id}`),
 };
 
-// FIR related API calls
-export const firAPI = {
-  addFIR: (firData) => {
-    // Format data for the backend
-    const formattedData = {
-      ...firData,
-      // Ensure IDs are strings for BigInteger parsing
-      victimId: firData.victimId.toString(),
-      stationId: firData.stationId.toString(),
-      // Make sure dates are in correct format for LocalDate
-      complainDate: firData.complainDate,
-      incidentDate: firData.incidentDate
-    };
-    return apiClient.post('/fir/addfir', formattedData);
-  },
-  getAllFIRs: () => {
-    return apiClient.get('/fir/allfir');
-  },
-  getFIRById: (id) => {
-    return apiClient.get(`/fir/findbyid/${id}`);
-  },
-  assignOfficer: (firId, officerId) => {
-    return apiClient.post(`/fir/assignofficer/${firId}/${officerId}`);
-  },
-  closeFIR: (firId) => {
-    return apiClient.post(`/fir/close/${firId}`);
-  },
-  updateStatus: (firId, status) => {
-    return apiClient.post(`/fir/update-status/${firId}/${status}`);
-  },
-};
-
-// Police related API calls
 export const policeAPI = {
+  getAllPolice: () => apiClient.get('/police/allpolice'),
+  getPoliceById: (id) => apiClient.get(`/police/police/${id}`),
   addPolice: (policeData) => {
-    return apiClient.post('/police/add', policeData);
-  },
-  getAllPolice: () => {
-    return apiClient.get('/police/allpolice');
-  },
-  getPoliceById: (id) => {
-    return apiClient.get(`/police/police/${id}`);
+    const formattedData = prepareBigIntegerFields(policeData, ['phone_no', 'stationId']);
+    return apiClient.post('/police/add', formattedData);
   },
   updatePolice: (policeData) => {
-    return apiClient.put(`/police/update/${policeData.hrms}`, policeData);
+    const formattedData = prepareBigIntegerFields(policeData, ['phone_no', 'stationId']);
+    return apiClient.put(`/police/update/${policeData.hrms}`, formattedData);
   },
-  deletePolice: (id) => {
-    return apiClient.delete(`/police/delete/${id}`);
-  },
-  login: (credentials) => {
-    return apiClient.get('/police/allpolice')
-      .then(response => {
-        const officers = response.data;
-        const officer = officers.find(
-          o => o.hrms === parseInt(credentials.hrms) && o.password === credentials.password
-        );
-        if (officer) {
-          return { data: officer };
-        } else {
-          throw new Error("Invalid credentials");
-        }
-      });
-  }
+  deletePolice: (id) => apiClient.delete(`/police/delete/${id}`),
+  login: (credentials) => apiClient.post('/police/login', credentials),
 };
 
-// Station related API calls
 export const stationAPI = {
+  getAllStations: () => apiClient.get('/station/allstation'),
+  getStationById: (id) => apiClient.get(`/station/station/${id}`),
   addStation: (stationData) => {
-    // Format data for the backend
-    const formattedData = {
-      ...stationData,
-      StationInchargeId: stationData.StationInchargeId ? parseInt(stationData.StationInchargeId) : 0
-    };
+    const formattedData = prepareBigIntegerFields(stationData, ['stationSid', 'phoneNo']);
     return apiClient.post('/station/add', formattedData);
   },
-  getAllStations: () => {
-    return apiClient.get('/station/allstation')
-      .then(response => {
-        // Fix potential field name issues
-        const fixedData = response.data?.map(station => ({
-          ...station,
-          StationInchargeId: station.StationInchargeId || station.stationInchargeId
-        }));
-        return { ...response, data: fixedData };
-      });
-  },
-  getStationById: (id) => {
-    return apiClient.get(`/station/station/${id}`);
-  },
   updateStation: (stationData) => {
-    // Ensure StationInchargeId is properly formatted
-    const formattedData = {
-      ...stationData,
-      StationInchargeId: stationData.StationInchargeId ? parseInt(stationData.StationInchargeId) : 0
-    };
-    return apiClient.put(`/station/update/${formattedData.stationSid}`, formattedData);
+    const formattedData = prepareBigIntegerFields(stationData, ['stationSid', 'phoneNo']);
+    return apiClient.put(`/station/update/${stationData.stationSid}`, formattedData);
   },
-  deleteStation: (id) => {
-    return apiClient.delete(`/station/delete/${id}`);
-  },
-  updateStationIncharge: (stationId, officerId) => {
-    return apiClient.put(`/station/update/stationIncharge/${officerId}/${stationId}`);
-  }
+  deleteStation: (id) => apiClient.delete(`/station/delete/${id}`),
+  updateStationIncharge: (stationId, inchargeId) => 
+    apiClient.put(`/station/update/stationIncharge/${inchargeId}/${stationId}`),
+  login: (credentials) => apiClient.post('/station/login', credentials),
 };
 
-// Admin API calls
+export const firAPI = {
+  getAllFIRs: () => apiClient.get('/fir/allfir'),
+  getFIRById: (id) => apiClient.get(`/fir/findbyid/${id}`),
+  addFIR: (firData) => {
+    const formattedData = prepareBigIntegerFields(firData, ['victimId', 'stationId']);
+    // Convert dates to ISO format
+    if (firData.complainDate) {
+      formattedData.complainDate = new Date(firData.complainDate).toISOString().split('T')[0];
+    }
+    if (firData.incidentDate) {
+      formattedData.incidentDate = new Date(firData.incidentDate).toISOString().split('T')[0];
+    }
+    return apiClient.post('/fir/addfir', formattedData);
+  },
+  assignOfficer: (firId, officerId) => 
+    apiClient.post(`/fir/assignofficer/${firId}/${officerId}`),
+  closeFIR: (firId) => apiClient.post(`/fir/close/${firId}`),
+  updateStatus: (firId, status) => 
+    apiClient.post(`/fir/update-status/${firId}/${status}`),
+  updateFIR: (firId, updateData) => {
+    const formattedData = updateData.criminalId ? 
+      prepareBigIntegerFields(updateData, ['criminalId']) : updateData;
+    return apiClient.put(`/fir/update/${firId}`, formattedData);
+  },
+};
+
 export const adminAPI = {
-  register: (adminData) => {
-    return apiClient.post('/admin/register', adminData);
-  },
-  login: (credentials) => {
-    return apiClient.post('/admin/login', credentials);
-  },
-  getPendingPoliceApprovals: () => {
-    return apiClient.get('/admin/pending-police');
-  },
-  approvePolice: (hrms) => {
-    return apiClient.post(`/admin/approve-police/${hrms}`);
-  },
-  denyPolice: (hrms) => {
-    return apiClient.post(`/admin/deny-police/${hrms}`);
-  },
-  getPendingStationApprovals: () => {
-    return apiClient.get('/admin/pending-stations');
-  },
-  approveStation: (sid) => {
-    return apiClient.post(`/admin/approve-station/${sid}`);
-  },
-  denyStation: (sid) => {
-    return apiClient.post(`/admin/deny-station/${sid}`);
-  },
-  suspendPolice: (hrms) => {
-    return apiClient.post(`/admin/suspend-police/${hrms}`);
-  },
-  suspendStation: (sid) => {
-    return apiClient.post(`/admin/suspend-station/${sid}`);
-  },
+  register: (adminData) => apiClient.post('/admin/register', adminData),
+  login: (credentials) => apiClient.post('/admin/login', credentials),
+  getPendingPoliceApprovals: () => apiClient.get('/admin/pending-police'),
+  approvePolice: (hrms) => apiClient.post(`/admin/approve-police/${hrms}`),
+  denyPolice: (hrms) => apiClient.post(`/admin/deny-police/${hrms}`),
+  getPendingStationApprovals: () => apiClient.get('/admin/pending-stations'),
+  approveStation: (sid) => apiClient.post(`/admin/approve-station/${sid}`),
+  denyStation: (sid) => apiClient.post(`/admin/deny-station/${sid}`),
+  suspendPolice: (hrms) => apiClient.post(`/admin/suspend-police/${hrms}`),
+  suspendStation: (sid) => apiClient.post(`/admin/suspend-station/${sid}`),
 };
 
-// Update the default export
-export default {
-  user: userAPI,
-  fir: firAPI,
-  police: policeAPI,
-  station: stationAPI,
-  admin: adminAPI
+export const criminalAPI = {
+  getAllCriminals: () => apiClient.get('/criminal/all'),
+  getCriminalById: (id) => apiClient.get(`/criminal/${id}`),
+  addCriminal: (criminalData) => {
+    const formattedData = prepareBigIntegerFields(
+      criminalData, 
+      ['criminalId', 'phone_no', 'stationId']
+    );
+    return apiClient.post('/criminal/add', formattedData);
+  },
+  updateCriminal: (id, criminalData) => {
+    const formattedData = prepareBigIntegerFields(
+      criminalData, 
+      ['criminalId', 'phone_no', 'stationId']
+    );
+    return apiClient.put(`/criminal/update/${id}`, formattedData);
+  },
+  deleteCriminal: (id) => apiClient.delete(`/criminal/delete/${id}`),
+  getCriminalsByStation: (stationId) => apiClient.get(`/criminal/station/${stationId}`),
+  searchCriminals: (searchParams) => {
+    const queryParams = new URLSearchParams();
+    if (searchParams.name) queryParams.append('name', searchParams.name);
+    if (searchParams.status) queryParams.append('status', searchParams.status);
+    
+    return apiClient.get(`/criminal/search?${queryParams.toString()}`);
+  },
+  addCrimeToCriminal: (criminalId, crimeData) => {
+    // Format dates correctly
+    const formattedCrimeData = {...crimeData};
+    
+    if (crimeData.crimeDate) {
+      formattedCrimeData.crimeDate = new Date(crimeData.crimeDate).toISOString().split('T')[0];
+    }
+    
+    if (crimeData.convictionDate) {
+      formattedCrimeData.convictionDate = new Date(crimeData.convictionDate).toISOString().split('T')[0];
+    }
+    
+    return apiClient.post(`/criminal/${criminalId}/addCrime`, formattedCrimeData);
+  },
 };

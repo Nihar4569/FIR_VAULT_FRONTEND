@@ -24,17 +24,25 @@ const UserLogin = () => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
-
+  
     try {
+      // Ensure aid is valid
+      if (!credentials.aid || !/^\d{12}$/.test(credentials.aid)) {
+        setError('Please enter a valid 12-digit Aadhar number');
+        setIsLoading(false);
+        return;
+      }
+  
       // Get user by aid
       const response = await userAPI.getUserById(credentials.aid);
-
-      if (response.data) {
+      const userData = response.data || response;
+  
+      if (userData) {
         // Check if password matches
-        if (response.data.password === credentials.password) {
+        if (userData.password === credentials.password) {
           // Store user data in localStorage
           localStorage.setItem('userToken', 'user-mock-token');
-          localStorage.setItem('userData', JSON.stringify(response.data));
+          localStorage.setItem('userData', JSON.stringify(userData));
           navigate('/user');
         } else {
           setError('Invalid password. Please try again.');
@@ -43,13 +51,17 @@ const UserLogin = () => {
         setError('User not found. Please check your Aadhar ID.');
       }
     } catch (err) {
-      setError('Login failed. Please check your credentials and try again.');
       console.error('Login error:', err);
+      
+      if (err.response && err.response.status === 404) {
+        setError('User not found. Please check your Aadhar ID.');
+      } else {
+        setError('Login failed. Please check your credentials and try again.');
+      }
     } finally {
       setIsLoading(false);
     }
   };
-
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />

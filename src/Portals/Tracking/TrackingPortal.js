@@ -28,21 +28,31 @@ const TrackingPortal = () => {
     setSearchError('');
     setFirData(null);
     setOfficerData(null);
-
+  
     try {
+      // Validate FIR ID
+      if (!searchParams.firId || isNaN(parseInt(searchParams.firId))) {
+        setSearchError('Please enter a valid FIR ID.');
+        setIsLoading(false);
+        return;
+      }
+  
       // Fetch FIR by ID
-      const firResponse = await firAPI.getFIRById(parseInt(searchParams.firId));
+      const firId = parseInt(searchParams.firId);
+      const firResponse = await firAPI.getFIRById(firId);
+      const firResponseData = firResponse?.data || firResponse;
       
-      if (firResponse.data) {
-        const fir = firResponse.data;
-        setFirData(fir);
+      if (firResponseData) {
+        setFirData(firResponseData);
         
         // If FIR has an assigned officer, fetch officer details
-        if (fir.officerId) {
+        if (firResponseData.officerId) {
           try {
-            const officerResponse = await policeAPI.getPoliceById(fir.officerId);
-            if (officerResponse.data) {
-              setOfficerData(officerResponse.data);
+            const officerResponse = await policeAPI.getPoliceById(firResponseData.officerId);
+            const officerResponseData = officerResponse?.data || officerResponse;
+            
+            if (officerResponseData) {
+              setOfficerData(officerResponseData);
             }
           } catch (officerError) {
             console.error('Error fetching officer details:', officerError);
@@ -52,8 +62,8 @@ const TrackingPortal = () => {
         setSearchError('FIR not found with the given ID.');
       }
     } catch (err) {
-      setSearchError('Error tracking FIR. Please check your FIR ID and try again.');
       console.error('Tracking error:', err);
+      setSearchError('Error tracking FIR: ' + (err.response?.data?.message || err.message));
     } finally {
       setIsLoading(false);
     }

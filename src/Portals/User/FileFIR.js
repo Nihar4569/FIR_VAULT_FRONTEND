@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Footer from '../../Components/Footer';
 import Navbar from '../../Components/Navbar';
 import { firAPI, stationAPI } from '../../Services/api';
+import { normalizeEntityData } from '../../utils/dataUtils';
 
 const FileFIR = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -31,23 +32,23 @@ const FileFIR = () => {
     // Check if user is logged in
     const token = localStorage.getItem('userToken');
     const userDataStr = localStorage.getItem('userData');
-
+  
     if (!token || !userDataStr) {
       navigate('/user/login');
       return;
     }
-
+  
     try {
       const userData = JSON.parse(userDataStr);
       setIsAuthenticated(true);
       setUser(userData);
-
-      // Set user ID in form data - ensure it's a string
+  
+      // Ensure aid is a string
       setFormData(prev => ({
         ...prev,
-        victimId: userData.aid.toString() // Convert to string to ensure proper BigInteger handling
+        victimId: userData.aid ? userData.aid.toString() : ''
       }));
-
+  
       // Fetch police stations
       fetchStations();
     } catch (error) {
@@ -59,10 +60,17 @@ const FileFIR = () => {
   const fetchStations = async () => {
     try {
       const response = await stationAPI.getAllStations();
-      if (response.data) {
+      
+      // Ensure we have data and handle both response.data and direct response cases
+      const stationsData = response.data || response;
+      
+      if (stationsData && Array.isArray(stationsData)) {
         // Only show approved stations
-        const approvedStations = response.data.filter(station => station.approval === true);
+        const approvedStations = stationsData.filter(station => station.approval === true);
         setStations(approvedStations);
+      } else {
+        console.error('Invalid stations data format:', stationsData);
+        setError('Failed to load police stations data. Please try again later.');
       }
     } catch (error) {
       console.error('Error fetching stations:', error);
@@ -99,26 +107,30 @@ const FileFIR = () => {
     e.preventDefault();
     setSubmitting(true);
     setError('');
-
+  
     try {
-      // Format data for the backend
-      const submissionData = {
-        ...formData,
-        victimId: formData.victimId.toString(), // Ensure victimId is a string
-        stationId: formData.stationId.toString() // Ensure stationId is a string
-      };
-
+      // Format data for the backend using our utility
+      const submissionData = normalizeEntityData(
+        formData,
+        {
+          bigIntFields: ['victimId', 'stationId'],
+          dateFields: ['complainDate', 'incidentDate']
+        }
+      );
+  
       // Submit the FIR to the backend
       const response = await firAPI.addFIR(submissionData);
       
-      if (response.data) {
+      if (response && (response.data || response)) {
         // Navigate to user dashboard on success
         navigate('/user');
+      } else {
+        setError('Failed to submit FIR. Please try again.');
       }
     } catch (err) {
       console.error('FIR submission error:', err);
       setError('Failed to submit FIR. Please try again.');
-
+  
       // Show more detailed error if available
       if (err.response && err.response.data) {
         console.error('Error details:', err.response.data);

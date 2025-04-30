@@ -132,6 +132,7 @@ function Navbar() {
             <Link to="/police" className="block py-2 text-gray-700 hover:text-blue-600" onClick={() => setIsOpen(false)}>Police Portal</Link>
             <Link to="/station" className="block py-2 text-gray-700 hover:text-blue-600" onClick={() => setIsOpen(false)}>Station Portal</Link>
             <Link to="/tracking" className="block py-2 text-gray-700 hover:text-blue-600" onClick={() => setIsOpen(false)}>Track FIR</Link>
+
             <div className="pt-2 mt-2 border-t border-gray-200">
               {isLoggedIn ? (
                 <button 

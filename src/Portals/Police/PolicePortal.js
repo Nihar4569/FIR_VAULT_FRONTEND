@@ -2,10 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Footer from '../../Components/Footer';
 import Navbar from '../../Components/Navbar';
-import { firAPI, stationAPI, userAPI } from '../../Services/api';
-
+import { firAPI, stationAPI, userAPI, criminalAPI } from '../../Services/api';
+import { LinkCriminalModal } from '../Criminal';
+import { formatDate, getStatusDisplayClass, getStatusDisplayName } from '../../utils/dataUtils';
+import { getErrorMessage } from '../../utils/errorUtils';
+import { useAuth } from '../../Context/AuthContext';
 const PolicePortal = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { policeAuth, isPoliceAuthenticated, logoutPolice } = useAuth();
   const [officer, setOfficer] = useState(null);
   const [stationInfo, setStationInfo] = useState(null);
   const [firs, setFirs] = useState([]);
@@ -15,13 +18,16 @@ const PolicePortal = () => {
   const [selectedFir, setSelectedFir] = useState(null);
   const [complainant, setComplainant] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const navigate = useNavigate();
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [newStatus, setNewStatus] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOption, setSortOption] = useState('');
+  const [isLinkCriminalModalOpen, setIsLinkCriminalModalOpen] = useState(false);
+  const [linkingFirId, setLinkingFirId] = useState(null);
+  const [error, setError] = useState('');
+  const navigate = useNavigate();
 
-  // Status flow - defines the next status in the workflow
+  // Comprehensive status flow with multiple stages
   const statusFlow = {
     'submitted': 'assigned',
     'assigned': 'investigating',
@@ -30,7 +36,7 @@ const PolicePortal = () => {
     'under_review': 'resolved'
   };
 
-  // Status display names for UI
+  // Detailed status display names for UI
   const statusDisplayNames = {
     'submitted': 'Submitted',
     'assigned': 'Assigned',
@@ -41,32 +47,27 @@ const PolicePortal = () => {
   };
 
   useEffect(() => {
-    // Check if police officer is logged in
-    const token = localStorage.getItem('policeToken');
-    const policeDataStr = localStorage.getItem('policeData');
+    if (!isPoliceAuthenticated) {
+      navigate('/police/login');
+      return;
+    }
 
-    if (token && policeDataStr) {
-      try {
-        const policeData = JSON.parse(policeDataStr);
-        setIsAuthenticated(true);
-        setOfficer(policeData);
+    setOfficer(policeAuth);
 
-        // Fetch station information
-        fetchStationInfo(policeData.stationId);
-
-        // Fetch FIRs
-        fetchFIRs(policeData.hrms, policeData.stationId);
-      } catch (error) {
-        console.error('Error parsing police data:', error);
-        localStorage.removeItem('policeToken');
-        localStorage.removeItem('policeData');
-        setIsAuthenticated(false);
-        setIsLoading(false);
-      }
+    // Fetch station information and FIRs
+    if (policeAuth?.stationId) {
+      fetchStationInfo(policeAuth.stationId);
+      fetchFIRs(policeAuth.hrms, policeAuth.stationId);
     } else {
+      console.error('Missing station ID in police auth data');
       setIsLoading(false);
     }
-  }, []);
+  }, [isPoliceAuthenticated, policeAuth, navigate]);
+
+  const openLinkCriminalModal = (firId) => {
+    setLinkingFirId(firId);
+    setIsLinkCriminalModalOpen(true);
+  };
 
   const fetchStationInfo = async (stationId) => {
     try {
@@ -76,27 +77,48 @@ const PolicePortal = () => {
       }
 
       const response = await stationAPI.getStationById(stationId);
-      if (response.data) {
-        setStationInfo(response.data);
+      const stationData = response?.data || response;
+      
+      if (stationData) {
+        setStationInfo(stationData);
+      } else {
+        console.error('No station data returned for ID:', stationId);
+        setError('Failed to retrieve station information. Please contact administrator.');
       }
     } catch (error) {
       console.error('Error fetching station info:', error);
+      setError('Error loading station information: ' + getErrorMessage(error));
     }
   };
 
   const fetchFIRs = async (officerId, stationId) => {
     try {
-      // Get all FIRs from backend
+      if (!stationId) {
+        console.error('No station ID provided');
+        setIsLoading(false);
+        return;
+      }
+
       const response = await firAPI.getAllFIRs();
-      if (response.data) {
-        // Filter FIRs based on the officer's station
-        const stationFIRs = response.data.filter(fir =>
-          fir.stationId && fir.stationId.toString() === stationId.toString()
+      const firsData = response?.data || response || [];
+      
+      if (Array.isArray(firsData)) {
+        // Ensure stationId is treated as string for comparison
+        const stationIdStr = stationId.toString();
+        
+        const stationFIRs = firsData.filter(fir =>
+          fir.stationId && fir.stationId.toString() === stationIdStr
         );
+        
         setFirs(stationFIRs);
+      } else {
+        console.error('Invalid FIRs data format:', firsData);
+        setFirs([]);
+        setError('Failed to load FIR data. Please try again later.');
       }
     } catch (error) {
       console.error('Error fetching FIRs:', error);
+      setError('Error loading FIRs: ' + getErrorMessage(error));
     } finally {
       setIsLoading(false);
     }
@@ -110,102 +132,142 @@ const PolicePortal = () => {
 
   const fetchComplainantDetails = async (victimId) => {
     try {
+      if (!victimId) {
+        console.error('No victim ID provided');
+        return;
+      }
+      
       const response = await userAPI.getUserById(victimId);
-      if (response.data) {
-        setComplainant(response.data);
+      const userData = response?.data || response;
+      
+      if (userData) {
+        setComplainant(userData);
+      } else {
+        console.error('No user data found for victim ID:', victimId);
       }
     } catch (error) {
       console.error('Error fetching complainant details:', error);
+      setError('Error loading complainant details: ' + getErrorMessage(error));
     }
   };
-
+ 
   const viewFirDetails = async (fir) => {
     setSelectedFir(fir);
-    setComplainant(null); // Reset complainant info
+    setComplainant(null);
     setIsViewModalOpen(true);
-
-    // Fetch complainant details
+ 
     if (fir.victimId) {
       fetchComplainantDetails(fir.victimId);
     }
   };
-
+ 
   const handleLogout = () => {
-    localStorage.removeItem('policeToken');
-    localStorage.removeItem('policeData');
-    setIsAuthenticated(false);
-    setOfficer(null);
+    logoutPolice();
     navigate('/police/login');
   };
-
+ 
   const handleAssignToMe = async (firId) => {
     setIsProcessing(true);
+    setError('');
+    
     try {
-      await firAPI.assignOfficer(firId, officer.hrms);
-      // Update status to "assigned"
-      await firAPI.updateStatus(firId, "assigned");
-      // Refresh FIRs
-      await fetchFIRs(officer.hrms, officer.stationId);
-      // Show success message
-      alert("FIR has been assigned to you successfully");
+      if (!officer?.hrms) {
+        throw new Error('Officer ID is missing');
+      }
+      
+      const assignResponse = await firAPI.assignOfficer(firId, officer.hrms);
+      
+      if (assignResponse) {
+        // Also update the status to "assigned"
+        await firAPI.updateStatus(firId, "assigned");
+        
+        // Refresh FIRs list
+        await fetchFIRs(officer.hrms, officer.stationId);
+        alert("FIR has been assigned to you successfully");
+      } else {
+        throw new Error('Failed to assign FIR');
+      }
     } catch (error) {
       console.error('Error assigning officer:', error);
+      setError('Error assigning FIR: ' + getErrorMessage(error));
       alert("Failed to assign FIR. Please try again.");
     } finally {
       setIsProcessing(false);
     }
   };
-
+ 
   const handleUpdateStatus = async (firId, status) => {
     setIsProcessing(true);
+    setError('');
+    
     try {
-      await firAPI.updateStatus(firId, status);
-      // Refresh FIRs
-      await fetchFIRs(officer.hrms, officer.stationId);
-      // Show success message
-      alert(`FIR status updated to ${statusDisplayNames[status] || status}`);
-      // Close both modals
-      setIsStatusModalOpen(false);
-      setIsViewModalOpen(false);
+      if (!firId || !status) {
+        throw new Error('FIR ID or status is missing');
+      }
+      
+      const response = await firAPI.updateStatus(firId, status);
+      
+      if (response) {
+        // If setting to "resolved", also close the FIR if it's not already closed
+        if (status === "resolved") {
+          const fir = firs.find(f => f.firId === firId);
+          if (fir && !fir.close) {
+            await firAPI.closeFIR(firId);
+          }
+        }
+        
+        // Refresh FIRs list
+        await fetchFIRs(officer.hrms, officer.stationId);
+        alert(`FIR status updated to ${statusDisplayNames[status] || status}`);
+        setIsStatusModalOpen(false);
+        setIsViewModalOpen(false);
+      } else {
+        throw new Error('Failed to update status');
+      }
     } catch (error) {
       console.error('Error updating status:', error);
+      setError('Error updating status: ' + getErrorMessage(error));
       alert("Failed to update status. Please try again.");
     } finally {
       setIsProcessing(false);
     }
   };
-
+ 
   const handleResolveFIR = async (firId) => {
     setIsProcessing(true);
+    setError('');
+    
     try {
-      await firAPI.closeFIR(firId);
-      await firAPI.updateStatus(firId, "resolved");
-      // Refresh FIRs
-      await fetchFIRs(officer.hrms, officer.stationId);
-      // Show success message
-      alert("FIR has been marked as resolved");
+      if (!firId) {
+        throw new Error('FIR ID is missing');
+      }
+      
+      const response = await firAPI.closeFIR(firId);
+      
+      if (response) {
+        // Also update status to "resolved"
+        await firAPI.updateStatus(firId, "resolved");
+        
+        // Refresh FIRs list
+        await fetchFIRs(officer.hrms, officer.stationId);
+        alert("FIR has been marked as resolved");
+      } else {
+        throw new Error('Failed to resolve FIR');
+      }
     } catch (error) {
       console.error('Error closing FIR:', error);
+      setError('Error resolving FIR: ' + getErrorMessage(error));
       alert("Failed to resolve FIR. Please try again.");
     } finally {
       setIsProcessing(false);
     }
   };
-
+ 
   // Get next status in workflow
   const getNextStatus = (currentStatus) => {
     return statusFlow[currentStatus] || 'resolved';
   };
-
-  // Format date for display
-  const formatDate = (dateString) => {
-    try {
-      return new Date(dateString).toLocaleDateString();
-    } catch (error) {
-      return 'Invalid date';
-    }
-  };
-
+ 
   // Apply search filter
   const applySearchFilter = (firs) => {
     if (!searchQuery.trim()) return firs;
@@ -217,7 +279,7 @@ const PolicePortal = () => {
       fir.description?.toLowerCase().includes(query)
     );
   };
-
+ 
   // Apply sorting
   const applySorting = (firs) => {
     if (!sortOption) return firs;
@@ -233,7 +295,7 @@ const PolicePortal = () => {
         return sortedFirs;
     }
   };
-
+ 
   // Filter FIRs based on active tab
   const filteredFIRs = applySorting(applySearchFilter(firs.filter(fir => {
     if (activeTab === 'pending') return fir.status === 'submitted' && !fir.officerId;
@@ -241,47 +303,41 @@ const PolicePortal = () => {
     if (activeTab === 'resolved') return fir.close && fir.officerId === officer?.hrms;
     return true;
   })));
-
-  // Get status badge color
-  const getStatusBadgeColor = (fir) => {
-    if (fir.close) return 'bg-green-100 text-green-800';
-    
-    switch(fir.status) {
-      case 'submitted':
-        return 'bg-blue-100 text-blue-800';
-      case 'assigned':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'investigating':
-        return 'bg-orange-100 text-orange-800';
-      case 'evidence_collection':
-        return 'bg-purple-100 text-purple-800';
-      case 'under_review':
-        return 'bg-indigo-100 text-indigo-800';
-      case 'resolved':
-        return 'bg-green-100 text-green-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
+ 
+  // Handle input changes from search
+  const handleSearchInputChange = (e) => {
+    setSearchQuery(e.target.value);
   };
-
-  // Get formatted status display name
-  const getStatusDisplayName = (fir) => {
-    if (fir.close) return 'Resolved';
-    return statusDisplayNames[fir.status] || fir.status || 'Submitted';
+ 
+  // Handle sort selection
+  const handleSortChange = (e) => {
+    setSortOption(e.target.value);
   };
-
+ 
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
       <div className="flex-grow pt-20">
         <div className="container mx-auto px-4 py-8">
           <h1 className="text-3xl font-bold mb-8 text-center">Police Officer Portal</h1>
-
+ 
+          {error && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+              {error}
+              <button 
+                className="float-right font-bold" 
+                onClick={() => setError('')}
+              >
+                &times;
+              </button>
+            </div>
+          )}
+ 
           {isLoading ? (
             <div className="flex justify-center items-center h-64">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-700"></div>
             </div>
-          ) : isAuthenticated ? (
+          ) : isPoliceAuthenticated ? (
             <div>
               <div className="bg-blue-700 text-white rounded-lg shadow-lg p-6 mb-8">
                 <div className="flex flex-col md:flex-row items-center justify-between">
@@ -292,9 +348,9 @@ const PolicePortal = () => {
                       </svg>
                     </div>
                     <div>
-                      <h2 className="text-2xl font-semibold">{officer.name}</h2>
+                      <h2 className="text-2xl font-semibold">{officer?.name}</h2>
                       <p className="text-blue-200">
-                        {officer.position} | {stationInfo ? stationInfo.stationName : 'Loading station...'}
+                        {officer?.position} | {stationInfo ? stationInfo.stationName : 'Loading station...'}
                       </p>
                     </div>
                   </div>
@@ -311,7 +367,6 @@ const PolicePortal = () => {
                   </div>
                 </div>
               </div>
-
               <div className="bg-white rounded-lg shadow-lg overflow-hidden mb-8">
                 <div className="grid grid-cols-3 divide-x">
                   <div
@@ -343,10 +398,10 @@ const PolicePortal = () => {
                   </div>
                 </div>
               </div>
-
+ 
               <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-                <div className="p-4 bg-gray-50 border-b flex flex-col md:flex-row items-center justify-between">
-                  <h3 className="text-lg font-semibold mb-2 md:mb-0">
+                <div className="p-4 bg-gray-50 border-b flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">
                     {activeTab === 'pending' ? 'Pending FIRs' :
                       activeTab === 'inProgress' ? 'My Cases' :
                         activeTab === 'resolved' ? 'Resolved FIRs' : 'All FIRs'}
@@ -357,12 +412,12 @@ const PolicePortal = () => {
                       placeholder="Search by FIR ID, location..."
                       className="px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-64"
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onChange={handleSearchInputChange}
                     />
                     <select 
                       className="px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       value={sortOption}
-                      onChange={(e) => setSortOption(e.target.value)}
+                      onChange={handleSortChange}
                     >
                       <option value="">Sort by</option>
                       <option value="recent">Most Recent</option>
@@ -370,7 +425,6 @@ const PolicePortal = () => {
                     </select>
                   </div>
                 </div>
-
                 {filteredFIRs.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="min-w-full">
@@ -392,8 +446,8 @@ const PolicePortal = () => {
                             <td className="py-3 px-4 text-sm text-gray-500">{formatDate(fir.incidentDate)}</td>
                             <td className="py-3 px-4 text-sm">{fir.incidentLocation}</td>
                             <td className="py-3 px-4">
-                              <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(fir)}`}>
-                                {getStatusDisplayName(fir)}
+                              <span className={`px-2 py-1 rounded-full text-xs ${getStatusDisplayClass(fir.status, 'fir')}`}>
+                                {getStatusDisplayName(fir.status)}
                               </span>
                             </td>
                             <td className="py-3 px-4">
@@ -417,7 +471,7 @@ const PolicePortal = () => {
                                 )}
                                 
                                 {/* Show dynamic next status button for assigned cases */}
-                                {fir.officerId === officer.hrms && !fir.close && (
+                                {fir.officerId === officer?.hrms && !fir.close && (
                                   <>
                                     {fir.status !== 'resolved' && (
                                       <button
@@ -483,7 +537,7 @@ const PolicePortal = () => {
           )}
         </div>
       </div>
-
+ 
       {/* Status Change Confirmation Modal */}
       {isStatusModalOpen && selectedFir && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -500,16 +554,16 @@ const PolicePortal = () => {
                   </svg>
                 </button>
               </div>
-
+ 
               <div className="mb-4">
                 <p className="text-sm text-gray-500 mb-1">Current Status</p>
                 <p className="font-medium">
-                  <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(selectedFir)}`}>
-                    {getStatusDisplayName(selectedFir)}
+                  <span className={`px-2 py-1 rounded-full text-xs ${getStatusDisplayClass(selectedFir.status, 'fir')}`}>
+                    {getStatusDisplayName(selectedFir.status)}
                   </span>
                 </p>
               </div>
-
+ 
               <div className="mb-6">
                 <label htmlFor="newStatus" className="block text-gray-700 text-sm font-medium mb-2">Select New Status</label>
                 <select
@@ -528,14 +582,14 @@ const PolicePortal = () => {
                   <option value="resolved">Resolved</option>
                 </select>
               </div>
-
+ 
               <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded-lg mb-6">
                 <p className="text-sm">
                   <span className="font-medium">Note:</span> Changing the status will update the case progress.
                   This action will be recorded in the system.
                 </p>
               </div>
-
+ 
               <div className="flex justify-end space-x-3">
                 <button
                   type="button"
@@ -557,14 +611,14 @@ const PolicePortal = () => {
           </div>
         </div>
       )}
-
+ 
       {/* View FIR Modal */}
       {isViewModalOpen && selectedFir && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl">
             <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">FIR #{selectedFir.firId}</h2>
+              <div className="flex justify-between items-center mb-4 border-b pb-3">
+                <h2 className="text-xl font-bold">FIR Details #{selectedFir.firId}</h2>
                 <button
                   onClick={() => setIsViewModalOpen(false)}
                   className="text-gray-500 hover:text-gray-700"
@@ -574,246 +628,134 @@ const PolicePortal = () => {
                   </svg>
                 </button>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+ 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
-                  <h3 className="text-sm font-medium text-gray-500 mb-1">Status</h3>
-                  <p className="text-lg">
-                    <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(selectedFir)}`}>
-                      {getStatusDisplayName(selectedFir)}
-                    </span>
-                  </p>
-                </div>
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500 mb-1">Filed On</h3>
-                  <p className="text-lg">{formatDate(selectedFir.complainDate)}</p>
+                  <h3 className="text-sm font-medium text-gray-500 mb-1">Complaint Date</h3>
+                  <p>{formatDate(selectedFir.complainDate)}</p>
                 </div>
                 <div>
                   <h3 className="text-sm font-medium text-gray-500 mb-1">Incident Date</h3>
-                  <p className="text-lg">{formatDate(selectedFir.incidentDate)}</p>
+                  <p>{formatDate(selectedFir.incidentDate)}</p>
                 </div>
                 <div>
                   <h3 className="text-sm font-medium text-gray-500 mb-1">Incident Location</h3>
-                  <p className="text-lg">{selectedFir.incidentLocation}</p>
+                  <p>{selectedFir.incidentLocation}</p>
                 </div>
-              </div>
-
-              {/* Case Timeline */}
-              <div className="mb-6">
-                <h3 className="font-medium text-lg mb-2">Case Timeline</h3>
-                <div className="relative pl-8 border-l-2 border-blue-200 ml-4 mb-4">
-                  <div className="absolute -left-2 top-0 w-4 h-4 rounded-full bg-blue-500"></div>
-                  <div className="mb-4">
-                    <p className="text-sm text-gray-500">{formatDate(selectedFir.complainDate)}</p>
-                    <p className="font-medium">FIR Submitted</p>
-                    <p className="text-sm text-gray-600">Case was registered in the system</p>
-                  </div>
-                  
-                  {selectedFir.officerId && (
-                    <div className="mb-4">
-                      <div className="absolute -left-2 w-4 h-4 rounded-full bg-yellow-500"></div>
-                      <p className="text-sm text-gray-500">-</p>
-                      <p className="font-medium">Assigned to Officer</p>
-                      <p className="text-sm text-gray-600">Case assigned to {officer?.name}</p>
-                    </div>
-                  )}
-                  
-                  {selectedFir.status === 'investigating' && (
-                    <div className="mb-4">
-                      <div className="absolute -left-2 w-4 h-4 rounded-full bg-orange-500"></div>
-                      <p className="text-sm text-gray-500">-</p>
-                      <p className="font-medium">Investigation Started</p>
-                      <p className="text-sm text-gray-600">Officer began investigating the case</p>
-                    </div>
-                  )}
-                  
-                  {selectedFir.status === 'evidence_collection' && (
-                    <div className="mb-4">
-                      <div className="absolute -left-2 w-4 h-4 rounded-full bg-purple-500"></div>
-                      <p className="text-sm text-gray-500">-</p>
-                      <p className="font-medium">Evidence Collection</p>
-                      <p className="text-sm text-gray-600">Gathering evidence related to the case</p>
-                    </div>
-                  )}
-                  
-                  {selectedFir.status === 'under_review' && (
-                    <div className="mb-4">
-                      <div className="absolute -left-2 w-4 h-4 rounded-full bg-indigo-500"></div>
-                      <p className="text-sm text-gray-500">-</p>
-                      <p className="font-medium">Under Review</p>
-                      <p className="text-sm text-gray-600">Case is under final review before resolution</p>
-                    </div>
-                  )}
-                  
-                  {selectedFir.close && (
-                    <div className="mb-4">
-                      <div className="absolute -left-2 w-4 h-4 rounded-full bg-green-500"></div>
-                      <p className="text-sm text-gray-500">-</p>
-                      <p className="font-medium">Case Resolved</p>
-                      <p className="text-sm text-gray-600">Case has been closed successfully</p>
-                    </div>
-                  )}
+                <div>
+                  <h3 className="text-sm font-medium text-gray-500 mb-1">Status</h3>
+                  <p>
+                    <span className={`px-2 py-1 rounded-full text-xs ${getStatusDisplayClass(selectedFir.status, 'fir')}`}>
+                      {getStatusDisplayName(selectedFir.status)}
+                    </span>
+                  </p>
                 </div>
-              </div>
-
-              {/* Complainant Information - Loaded Asynchronously */}
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <h3 className="font-medium text-lg mb-2">Complainant Information</h3>
-                {complainant ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm text-gray-500">Name</p>
-                      <p className="font-medium">{complainant.User_name}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Contact</p>
-                      <p className="font-medium">{complainant.phone_no}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Email</p>
-                      <p className="font-medium">{complainant.email}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Aadhar ID</p>
-                      <p className="font-medium">{complainant.aid}</p>
-                    </div>
+                {selectedFir.officerId && (
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-500 mb-1">Assigned Officer</h3>
+                    <p>{selectedFir.officerId === officer?.hrms ? 'You' : `Officer #${selectedFir.officerId}`}</p>
                   </div>
-                ) : (
-                  <div className="flex justify-center py-4">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-700"></div>
+                )}
+                {selectedFir.criminalId && (
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-500 mb-1">Linked Criminal</h3>
+                    <p>ID: {selectedFir.criminalId.toString()}</p>
                   </div>
                 )}
               </div>
-
-              {/* Incident Description */}
-              <div className="mb-6">
-                <h3 className="font-medium text-lg mb-2">Incident Description</h3>
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-gray-800 whitespace-pre-line">{selectedFir.description}</p>
-                </div>
-              </div>
-
-              {/* Add Case Notes Section */}
-              <div className="mb-6">
-                <h3 className="font-medium text-lg mb-2">Case Notes</h3>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <textarea
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
-                    rows="3"
-                    placeholder="Add notes about this case (for internal use only)"
-                  ></textarea>
-                  <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1 rounded text-sm">
-                    Save Notes
-                  </button>
-                  <p className="text-xs text-gray-500 mt-1">These notes are only visible to police officers</p>
-                </div>
-              </div>
-
-              {/* Evidence Tracker */}
-              {selectedFir.officerId === officer?.hrms && !selectedFir.close && (
+ 
+              {complainant && (
                 <div className="mb-6">
-                  <h3 className="font-medium text-lg mb-2">Evidence Tracker</h3>
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <ul className="space-y-2">
-                      <li className="flex items-center space-x-2">
-                        <input type="checkbox" id="evidence1" className="h-4 w-4 text-blue-600" />
-                        <label htmlFor="evidence1" className="text-gray-700">Witness statements collected</label>
-                      </li>
-                      <li className="flex items-center space-x-2">
-                        <input type="checkbox" id="evidence2" className="h-4 w-4 text-blue-600" />
-                        <label htmlFor="evidence2" className="text-gray-700">Photos of incident location</label>
-                      </li>
-                      <li className="flex items-center space-x-2">
-                        <input type="checkbox" id="evidence3" className="h-4 w-4 text-blue-600" />
-                        <label htmlFor="evidence3" className="text-gray-700">Documentation verified</label>
-                      </li>
-                    </ul>
-                    <div className="flex items-center mt-2">
-                      <input
-                        type="text"
-                        className="flex-1 px-3 py-1 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Add new evidence item"
-                      />
-                      <button className="bg-blue-600 text-white px-3 py-1 rounded-r-md">Add</button>
+                  <h3 className="font-medium border-b pb-2 mb-2">Complainant Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-sm text-gray-500">Name:</span> 
+                      <p>{complainant.User_name}</p>
+                    </div>
+                    <div>
+                      <span className="text-sm text-gray-500">Aadhar ID:</span> 
+                      <p>{complainant.aid?.toString()}</p>
+                    </div>
+                    <div>
+                      <span className="text-sm text-gray-500">Phone:</span> 
+                      <p>{complainant.phone_no?.toString()}</p>
+                    </div>
+                    <div>
+                      <span className="text-sm text-gray-500">Email:</span> 
+                      <p>{complainant.email}</p>
                     </div>
                   </div>
                 </div>
               )}
-
-              {/* Action Buttons */}
-              <div className="flex flex-wrap justify-end gap-4 mt-6 border-t pt-4">
-                {!selectedFir.officerId && (
-                  <button
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
-                    onClick={() => {
-                      handleAssignToMe(selectedFir.firId);
-                      setIsViewModalOpen(false);
-                    }}
-                    disabled={isProcessing}
-                  >
-                    {isProcessing ? 'Processing...' : 'Assign to Me'}
-                  </button>
-                )}
-                
-                {selectedFir.officerId === officer?.hrms && !selectedFir.close && (
-                  <>
-                    {/* Next status button */}
-                    {selectedFir.status !== 'resolved' && (
-                      <button
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
-                        onClick={() => {
-                          handleUpdateStatus(selectedFir.firId, getNextStatus(selectedFir.status));
-                          setIsViewModalOpen(false);
-                        }}
-                        disabled={isProcessing}
-                      >
-                        {isProcessing ? 'Processing...' : `Move to ${statusDisplayNames[getNextStatus(selectedFir.status)]}`}
-                      </button>
-                    )}
-                    
-                    {/* Change Status button */}
+ 
+              <div className="mb-6">
+                <h3 className="font-medium border-b pb-2 mb-2">Complaint Description</h3>
+                <p className="bg-gray-50 p-3 rounded whitespace-pre-wrap">{selectedFir.description}</p>
+              </div>
+ 
+              <div className="flex justify-between mt-6 pt-4 border-t">
+                <div>
+                  {!selectedFir.criminalId && (
                     <button
-                      className="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded"
                       onClick={() => {
                         setIsViewModalOpen(false);
-                        handleOpenStatusChange(selectedFir);
+                        openLinkCriminalModal(selectedFir.firId);
                       }}
-                      disabled={isProcessing}
+                      className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded"
                     >
-                      Change Status
+                      Link to Criminal Record
                     </button>
-                    
-                    {/* Resolve button for final stages */}
-                    {(selectedFir.status === 'under_review' || selectedFir.status === 'resolved') && !selectedFir.close && (
+                  )}
+                </div>
+                <div className="flex gap-3">
+                  {selectedFir.officerId === officer?.hrms && !selectedFir.close && (
+                    <>
                       <button
-                        className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded"
-                        onClick={() => {
-                          handleResolveFIR(selectedFir.firId);
-                          setIsViewModalOpen(false);
-                        }}
-                        disabled={isProcessing}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+                        onClick={() => handleOpenStatusChange(selectedFir)}
                       >
-                        {isProcessing ? 'Processing...' : 'Close Case'}
+                        Change Status
                       </button>
-                    )}
-                  </>
-                )}
-                
-                <button
-                  className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded"
-                  onClick={() => setIsViewModalOpen(false)}
-                >
-                  Close
-                </button>
+                      {(selectedFir.status === 'under_review' || selectedFir.status === 'resolved') && (
+                        <button
+                          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+                          onClick={() => {
+                            handleResolveFIR(selectedFir.firId);
+                            setIsViewModalOpen(false);
+                          }}
+                          disabled={isProcessing}
+                        >
+                          {isProcessing ? 'Processing...' : 'Mark as Resolved'}
+                        </button>
+                      )}
+                    </>
+                  )}
+                  <button
+                    className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded"
+                    onClick={() => setIsViewModalOpen(false)}
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </div>
       )}
-
+ 
+      {/* Link Criminal Modal */}
+      {isLinkCriminalModalOpen && (
+        <LinkCriminalModal
+          isOpen={isLinkCriminalModalOpen}
+          onClose={() => setIsLinkCriminalModalOpen(false)}
+          firId={linkingFirId}
+          refreshData={() => fetchFIRs(officer?.hrms, officer?.stationId)}
+        />
+      )}
+ 
       <Footer />
     </div>
   );
-};
-
-export default PolicePortal;
+ };
+ 
+ export default PolicePortal;

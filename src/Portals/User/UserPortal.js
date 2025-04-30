@@ -15,20 +15,26 @@ const UserPortal = () => {
     // Check if user is logged in
     const token = localStorage.getItem('userToken');
     const userDataStr = localStorage.getItem('userData');
-
+  
     if (token && userDataStr) {
       try {
         const userData = JSON.parse(userDataStr);
         setIsAuthenticated(true);
         setUser(userData);
-
+  
         // Fetch FIRs related to this user
-        fetchUserFIRs(userData.aid);
+        if (userData.aid) {
+          fetchUserFIRs(userData.aid);
+        } else {
+          console.error('User data missing aid:', userData);
+          setIsLoading(false);
+        }
       } catch (error) {
         console.error('Error parsing user data:', error);
         localStorage.removeItem('userToken');
         localStorage.removeItem('userData');
         setIsAuthenticated(false);
+        setIsLoading(false);
       }
     } else {
       setIsLoading(false);
@@ -37,13 +43,29 @@ const UserPortal = () => {
 
   const fetchUserFIRs = async (userId) => {
     try {
+      if (!userId) {
+        console.error('No user ID provided');
+        setIsLoading(false);
+        return;
+      }
+  
       // Get all FIRs and filter for this user
-      // Note: This is a workaround since backend doesn't provide an endpoint to get FIRs by userId
       const response = await firAPI.getAllFIRs();
-      if (response.data) {
+      const firsData = response?.data || response || [];
+      
+      if (Array.isArray(firsData)) {
+        // Ensure userId is treated as string for comparison
+        const userIdStr = userId.toString();
+        
         // Filter FIRs for this user (assuming victimId matches user's aid)
-        const userFirs = response.data.filter(fir => fir.victimId === userId);
+        const userFirs = firsData.filter(fir => 
+          fir.victimId && fir.victimId.toString() === userIdStr
+        );
+        
         setFirs(userFirs);
+      } else {
+        console.error('Invalid FIRs data format:', firsData);
+        setFirs([]);
       }
     } catch (error) {
       console.error('Error fetching FIRs:', error);
@@ -51,7 +73,6 @@ const UserPortal = () => {
       setIsLoading(false);
     }
   };
-
   const handleLogout = () => {
     localStorage.removeItem('userToken');
     localStorage.removeItem('userData');

@@ -29,33 +29,47 @@ const AdminRegister = () => {
         e.preventDefault();
         setIsLoading(true);
         setError('');
-
+      
         // Basic validation
         if (adminData.password !== adminData.confirmPassword) {
-            setError('Passwords do not match');
-            setIsLoading(false);
-            return;
+          setError('Passwords do not match');
+          setIsLoading(false);
+          return;
         }
-
+      
+        if (adminData.password.length < 6) {
+          setError('Password must be at least 6 characters long');
+          setIsLoading(false);
+          return;
+        }
+      
         try {
-            // Remove confirmPassword before sending to API
-            const { confirmPassword, ...adminToRegister } = adminData;
-
-            const response = await adminAPI.register(adminToRegister);
-
-            if (response.data) {
-                // Store admin data in localStorage
-                localStorage.setItem('adminToken', 'admin-token');
-                localStorage.setItem('adminData', JSON.stringify(response.data));
-                navigate('/admin');
-            }
+          // Remove confirmPassword before sending to API
+          const { confirmPassword, ...adminToRegister } = adminData;
+      
+          const response = await adminAPI.register(adminToRegister);
+          const responseData = response?.data || response;
+          
+          if (responseData) {
+            // Store admin data in localStorage
+            localStorage.setItem('adminToken', 'admin-token');
+            localStorage.setItem('adminData', JSON.stringify(responseData));
+            navigate('/admin');
+          } else {
+            setError('Registration failed. Server returned an invalid response.');
+          }
         } catch (err) {
-            setError('Registration failed. Please try again.');
-            console.error('Registration error:', err);
+          console.error('Registration error:', err);
+          
+          if (err.response) {
+            setError('Registration failed: ' + (err.response.data?.message || err.message));
+          } else {
+            setError('Registration failed. Please check your connection and try again.');
+          }
         } finally {
-            setIsLoading(false);
+          setIsLoading(false);
         }
-    };
+      };
 
     return (
         <div className="min-h-screen flex flex-col">

@@ -1,3 +1,5 @@
+// src/App.js
+
 import { Route, BrowserRouter as Router, Routes } from "react-router-dom";
 import './App.css';
 import Home from './Pages/Home';
@@ -8,6 +10,11 @@ import { PoliceLogin, PolicePortal } from './Portals/Police';
 import { StationLogin, StationPortal } from './Portals/Station';
 import { TrackingPortal } from './Portals/Tracking';
 import { FileFIR, UserLogin, UserPortal, UserRegister } from './Portals/User';
+import { CriminalPortal } from './Portals/Criminal';
+
+// Import context and protected route
+import { AuthProvider } from "./Context/AuthContext";
+import { ProtectedRoute } from "./Context/ProtectedRoute";
 
 // Import AOS for animations 
 import AOS from 'aos';
@@ -28,34 +35,49 @@ function App() {
 
   return (
     <Router>
-      <div className="App">
-        <Routes>
-          <Route path="/" element={<Home />} />
+      <AuthProvider>
+        <div className="App">
+          <Routes>
+            <Route path="/" element={<Home />} />
 
-          {/* User Portal Routes */}
-          <Route path="/user" element={<UserPortal />} />
-          <Route path="/user/login" element={<UserLogin />} />
-          <Route path="/user/register" element={<UserRegister />} />
-          <Route path="/user/file-fir" element={<FileFIR />} />
+            {/* User Portal Routes */}
+            <Route element={<ProtectedRoute authType="user" />}>
+              <Route path="/user" element={<UserPortal />} />
+              <Route path="/user/file-fir" element={<FileFIR />} />
+            </Route>
+            <Route path="/user/login" element={<UserLogin />} />
+            <Route path="/user/register" element={<UserRegister />} />
 
-          {/* Police Portal Routes */}
-          <Route path="/police" element={<PolicePortal />} />
-          <Route path="/police/login" element={<PoliceLogin />} />
+            {/* Police Portal Routes */}
+            <Route element={<ProtectedRoute authType="police" />}>
+              <Route path="/police" element={<PolicePortal />} />
+            </Route>
+            <Route path="/police/login" element={<PoliceLogin />} />
 
-          {/* Station Portal Routes */}
-          <Route path="/station" element={<StationPortal />} />
-          <Route path="/station/login" element={<StationLogin />} />
+            {/* Station Portal Routes */}
+            <Route element={<ProtectedRoute authType="station" />}>
+              <Route path="/station" element={<StationPortal />} />
+            </Route>
+            <Route path="/station/login" element={<StationLogin />} />
 
-          {/* Tracking Portal Routes */}
-          <Route path="/tracking" element={<TrackingPortal />} />
-          <Route path="/tracking/:id" element={<TrackingPortal />} />
+            {/* Tracking Portal Routes - No auth required */}
+            <Route path="/tracking" element={<TrackingPortal />} />
+            <Route path="/tracking/:id" element={<TrackingPortal />} />
 
-          {/* Admin Portal Routes */}
-          <Route path="/admin" element={<AdminPortal />} />
-          <Route path="/admin/login" element={<AdminLogin />} />
-          <Route path="/admin/register" element={<AdminRegister />} />
-        </Routes>
-      </div>
+            {/* Admin Portal Routes */}
+            <Route element={<ProtectedRoute authType="admin" />}>
+              <Route path="/admin" element={<AdminPortal />} />
+            </Route>
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin/register" element={<AdminRegister />} />
+            
+            {/* Criminal Portal Routes - Require admin or police auth */}
+            <Route element={<ProtectedRoute authType="admin" />}>
+              <Route path="/criminals/*" element={<CriminalPortal />} />
+            </Route>
+          </Routes>
+        </div>
+      </AuthProvider>
     </Router>
   );
 }
